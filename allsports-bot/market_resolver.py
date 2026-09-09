@@ -16,6 +16,7 @@ fallback for markets that might not be tied to any event.
 
 No API key required — this is public market metadata.
 """
+import json
 import logging
 import time
 from typing import Optional, Dict
@@ -29,6 +30,29 @@ GAMMA_API = "https://gamma-api.polymarket.com"
 # Cache resolved markets briefly so we don't hammer the API on every signal.
 _CACHE_TTL_SECONDS = 300
 _cache: Dict[str, tuple] = {}  # slug -> (timestamp, market_json)
+
+
+def get_winning_outcome(market: dict):
+    """There is no "winningOutcome" field in Polymarket's Gamma API — the
+    winner of a resolved market is determined from outcomePrices, which
+    settle to ~1.0 for the winning outcome and ~0.0 for the rest once
+    resolution completes. Returns None if not confidently resolved yet."""
+    outcomes = market.get("outcomes")
+    prices = market.get("outcomePrices")
+    if isinstance(outcomes, str):
+        outcomes = json.loads(outcomes)
+    if isinstance(prices, str):
+        prices = json.loads(prices)
+    if not outcomes or not prices or len(outcomes) != len(prices):
+        return None
+    try:
+        prices_f = [float(p) for p in prices]
+    except (TypeError, ValueError):
+        return None
+    winner_idx = prices_f.index(max(prices_f))
+    if prices_f[winner_idx] < 0.9:
+        return None  # not confidently settled yet, don't guess
+    return outcomes[winner_idx]
 
 
 class MarketResolver:

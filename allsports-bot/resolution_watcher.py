@@ -6,7 +6,6 @@ tracking, and the loss-streak pause).
 Run this as a second process alongside main.py:
     python resolution_watcher.py
 """
-import json
 import logging
 import os
 import time
@@ -17,7 +16,7 @@ load_dotenv()
 
 import config
 from risk_manager import RiskManager
-from market_resolver import MarketResolver
+from market_resolver import MarketResolver, get_winning_outcome
 
 logging.basicConfig(
     level=logging.INFO,
@@ -26,29 +25,6 @@ logging.basicConfig(
 logger = logging.getLogger("resolution_watcher")
 
 CHECK_INTERVAL_SECONDS = 60
-
-
-def get_winning_outcome(market: dict):
-    """There is no "winningOutcome" field in Polymarket's API — the winner
-    is determined from outcomePrices, which settle to ~1.0 for the winning
-    outcome once resolution completes. Returns None if not confidently
-    resolved yet."""
-    outcomes = market.get("outcomes")
-    prices = market.get("outcomePrices")
-    if isinstance(outcomes, str):
-        outcomes = json.loads(outcomes)
-    if isinstance(prices, str):
-        prices = json.loads(prices)
-    if not outcomes or not prices or len(outcomes) != len(prices):
-        return None
-    try:
-        prices_f = [float(p) for p in prices]
-    except (TypeError, ValueError):
-        return None
-    winner_idx = prices_f.index(max(prices_f))
-    if prices_f[winner_idx] < 0.9:
-        return None
-    return outcomes[winner_idx]
 
 
 def compute_pnl(position: dict, winning_outcome: str) -> tuple:

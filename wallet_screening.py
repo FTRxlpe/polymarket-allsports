@@ -74,7 +74,7 @@ def screen_wallet(address: str, min_buys: int = None, min_win_rate: float = None
         and float(t.get("timestamp", 0)) >= cutoff
     ]
 
-    from market_resolver import MarketResolver
+    from market_resolver import MarketResolver, get_winning_outcome
     resolver = MarketResolver()
 
     wins, losses = 0, 0
@@ -86,10 +86,10 @@ def screen_wallet(address: str, min_buys: int = None, min_win_rate: float = None
         market = resolver._get_market(slug)
         if not market or not market.get("closed"):
             continue
-        winning_outcome = market.get("winningOutcome") or market.get("outcome")
+        winning_outcome = get_winning_outcome(market)
+        if not winning_outcome:
+            continue
         for t in market_trades:
-            if not winning_outcome:
-                continue
             if str(t.get("outcome", "")).lower() == str(winning_outcome).lower():
                 wins += 1
             else:
@@ -110,5 +110,8 @@ def screen_wallet(address: str, min_buys: int = None, min_win_rate: float = None
         "win_rate": win_rate,
         "meets_activity_bar": meets_activity_bar,
         "meets_winrate_bar": meets_winrate_bar,
-        "qualifies": meets_activity_bar and (win_rate is None or meets_winrate_bar),
+        # A wallet with no resolvable win-rate data cannot be verified to
+        # meet the win-rate bar, so it no longer qualifies by default — only
+        # a genuinely computed win_rate >= min_win_rate passes.
+        "qualifies": meets_activity_bar and meets_winrate_bar,
     }

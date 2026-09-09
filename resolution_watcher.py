@@ -10,13 +10,13 @@ import logging
 import os
 import time
 
-import requests
 from dotenv import load_dotenv
 
 load_dotenv()
 
 import config
 from risk_manager import RiskManager
+from market_resolver import MarketResolver, get_winning_outcome
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,15 +25,6 @@ logging.basicConfig(
 logger = logging.getLogger("resolution_watcher")
 
 CHECK_INTERVAL_SECONDS = 60
-
-
-def fetch_market_status(slug: str) -> dict:
-    """Look up a market's resolution status via the public Gamma API."""
-    url = "https://gamma-api.polymarket.com/markets"
-    resp = requests.get(url, params={"slug": slug}, timeout=10)
-    resp.raise_for_status()
-    results = resp.json()
-    return results[0] if results else {}
 
 
 def compute_pnl(position: dict, winning_outcome: str) -> tuple:
@@ -55,23 +46,20 @@ def compute_pnl(position: dict, winning_outcome: str) -> tuple:
 
 def run():
     risk = RiskManager()
+    resolver = MarketResolver()
     logger.info("Resolution watcher started")
 
     while True:
         for position in list(risk.state.open_positions):
             slug = position["market_slug"]
             try:
-                market = fetch_market_status(slug)
-                if not market.get("closed"):
+                market = resolver._get_market(slug)  # uses the reliable /events lookup
+                if not market or not market.get("closed"):
                     continue
 
-                winning_outcome = market.get("winningOutcome") or market.get("outcome")
-                if not winning_outcome:
-                    logger.warning(
-                        f"Market {slug} is closed but has no winning outcome "
-                        f"yet — will re-check next cycle."
-                    )
-                    continue
+                winning_outcome = get_winning_outcome(market)
+                if winning_outcome is None:
+                    continue  # closed but not confidently settled yet, check again next cycle
 
                 won, pnl = compute_pnl(position, winning_outcome)
                 logger.info(

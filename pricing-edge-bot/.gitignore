@@ -1,0 +1,8 @@
+.env
+state/*.json
+logs/*.log
+logs/*.jsonl
+data/*.jsonl
+__pycache__/
+*.pyc
+.pytest_cache/

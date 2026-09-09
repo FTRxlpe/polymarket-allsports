@@ -59,7 +59,14 @@ SPORT_TAG_SLUG = "sports"
 # motorsports beyond F1, cricket, rugby. Sample a tag_id with
 # sample_sport_slugs.py before adding it here.
 SPORT_TAG_SLUGS: List[str] = [
-    "nba", "nfl", "mlb", "nhl", "tennis",
+    "nba", "nfl", "mlb", "nhl",
+    # "tennis" (tag_id=864, confirmed via list_sport_tags.py) used to
+    # resolve to 0 markets here: /tags?slug=tennis silently returned an
+    # unrelated tag_id (a Gamma bug, see _resolve_tag_id's comment), which
+    # sport_filter.py trusted without validating — fixed there, but real
+    # tennis match slugs are likely "atp-.../wta-..." rather than literally
+    # containing "tennis", so give the sanity check both keywords.
+    ("tennis", ["atp", "wta", "tennis"]),
     ("boxingmma", ["ufc", "vs-", "fight-night"]),
     ("formula-one", ["grand-prix"]),
 ]

@@ -84,7 +84,13 @@ class SportFilter:
         if self._tag_id is not None:
             return self._tag_id
 
-        # Try direct slug lookup first.
+        # Try direct slug lookup first. NOTE: confirmed in practice that
+        # Gamma's /tags?slug=X silently ignores the filter for some values
+        # and returns an unrelated generic tag instead of erroring or
+        # returning empty — so the response must be validated against what
+        # was actually asked for, not trusted blindly (this bug used to
+        # make every unresolved tag_slug, e.g. "tennis", "sports", collapse
+        # onto the same wrong tag_id).
         try:
             resp = self.session.get(
                 f"{GAMMA_API}/tags", params={"slug": self.tag_slug}, timeout=15
@@ -93,10 +99,18 @@ class SportFilter:
             results = resp.json()
             if results:
                 entry = results[0] if isinstance(results, list) else results
-                if entry.get("id"):
+                returned_slug = (entry.get("slug") or "").lower()
+                if entry.get("id") and returned_slug == self.tag_slug.lower():
                     self._tag_id = int(entry["id"])
                     logger.info(f"Resolved tag '{self.tag_slug}' -> tag_id={self._tag_id}")
                     return self._tag_id
+                else:
+                    logger.warning(
+                        f"/tags?slug={self.tag_slug} returned a mismatched "
+                        f"tag (slug={returned_slug!r}, id={entry.get('id')}) "
+                        f"— Gamma's slug filter appears to be ignored here; "
+                        f"falling back to a full tag-list scan instead."
+                    )
         except (requests.RequestException, ValueError, KeyError) as e:
             logger.warning(f"Direct tag slug lookup failed for '{self.tag_slug}': {e}")
 

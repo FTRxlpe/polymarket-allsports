@@ -116,6 +116,12 @@ class MarketResolver:
 
         if not market:
             logger.warning(f"No market found on Gamma API for slug={slug} (tried both /events and /markets)")
+            # Cache the miss too (shorter TTL than a hit) — without this,
+            # the same unresolvable slug (typically a deep prop/total
+            # sub-market /events can't find) gets re-fetched from scratch
+            # every time a different wallet's screening touches it, which
+            # in practice meant thousands of redundant repeated lookups.
+            _cache[slug] = (time.time(), None)
             return None
 
         _cache[slug] = (time.time(), market)

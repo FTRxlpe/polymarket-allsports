@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+logs/*.log
+logs/*.jsonl
+state/*.json

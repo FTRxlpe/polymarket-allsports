@@ -20,7 +20,7 @@ from datetime import datetime, timezone, timedelta
 import requests
 
 import config
-from sport_filter import SportFilter
+from sport_filter import MultiSportFilter
 
 logger = logging.getLogger("wallet_screening")
 
@@ -28,7 +28,7 @@ LOOKBACK_WEEKS = 10
 MIN_BUYS = 8
 MIN_WIN_RATE = 0.50
 
-_sport_filter = SportFilter(tag_slug=config.SPORT_TAG_SLUG)
+_sport_filter = MultiSportFilter(config.SPORT_TAG_SLUGS)
 
 
 def fetch_trades(address: str, limit: int = 500, max_retries: int = 4) -> list:

@@ -14,10 +14,36 @@ PAPER_TRADING = os.getenv("PAPER_TRADING", "true").lower() == "true"
 # --------------------------------------------------------------------------
 # CATEGORY / DOMAIN
 # --------------------------------------------------------------------------
-# Which Polymarket tag to trade. Filtering is done via the official Gamma
-# API tag system (see sport_filter.py) rather than a slug prefix, since
-# market slugs are named per-event, not consistently.
+# SPORT_TAG_SLUG is a human-readable label only (used in log/README text) —
+# it is NOT looked up directly against the Gamma API, because Polymarket has
+# no generic umbrella tag for "all sports combined". Confirmed by running
+# list_sport_tags.py against the live API: the tag_slug="sports" this used
+# to be set to resolves (via tag_id) to unrelated non-sports markets, and
+# the closest real tag match is "fox-sports" (a broadcaster tag, not
+# content). So "all sports" is built as a UNION of the real per-sport tags
+# below (see sport_filter.MultiSportFilter) instead of one tag lookup.
 SPORT_TAG_SLUG = "sports"
+
+# Real per-sport tags/leagues to union. Deliberately conservative for now:
+# only tags we have real confidence resolve correctly (their own name is a
+# proven slug prefix — nba-/nfl-/mlb-/nhl-/ufc-/tennis-style, the same
+# pattern the single-sport tennis/nba/ufc bots already rely on
+# successfully). nfl/nhl/mlb aren't generic /tags entries (confirmed via
+# list_sport_tags.py) but are "automated leagues" that sport_filter.py's
+# series_id path (GET /sports) resolves independently.
+#
+# NOT included yet: soccer, golf, motorsports, college sports, combat
+# sports beyond UFC. list_sport_tags.py found tags for these (e.g.
+# "champions-league", "formula-one", "boxingmma", "college-football") but
+# their real market-slug prefix is unverified — Polymarket often uses a
+# short abbreviation (e.g. likely "f1-" not "formula-one-") that doesn't
+# literally match the tag name, which would silently fail sport_filter.py's
+# sanity check and contribute nothing. Run sample_sport_slugs.py to find
+# each one's real prefix, then add it here as either "tag-slug" or
+# ("tag-slug", ["expected", "prefix", "keywords"]) if it differs.
+SPORT_TAG_SLUGS: List[str] = [
+    "nba", "nfl", "mlb", "nhl", "ufc", "tennis",
+]
 
 # Which category to pull the wallet leaderboard from (data-api.polymarket.com
 # /v1/leaderboard?category=X). Valid values include: OVERALL, POLITICS,
@@ -29,8 +55,10 @@ LEADERBOARD_CATEGORY = "SPORTS"
 # ("ufc-...", "nba-..."), which sport_filter.py uses as a sanity check
 # against mislabeled tag/series data. Political market slugs are one-off
 # phrases with no shared prefix ("will-trump-win-2024", "russia-ukraine-
-# ceasefire"...), so that check doesn't apply there. Sports slugs DO follow
-# this convention, so keep the sanity check enabled here.
+# ceasefire"...), so that check doesn't apply there. Each individual sport
+# tag in SPORT_TAG_SLUGS DOES follow this convention (its own slug appears
+# in its own markets' slugs), so keep the sanity check enabled here — it's
+# what caught the broken "sports" umbrella tag in the first place.
 DISABLE_SANITY_CHECK = False
 
 # --------------------------------------------------------------------------

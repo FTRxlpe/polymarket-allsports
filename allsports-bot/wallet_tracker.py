@@ -11,7 +11,7 @@ from typing import List, Optional
 import requests
 
 import config
-from sport_filter import SportFilter
+from sport_filter import MultiSportFilter
 
 logger = logging.getLogger("wallet_tracker")
 
@@ -33,7 +33,7 @@ class WalletTracker:
     def __init__(self):
         self._seen_tx_hashes = set()
         self.session = requests.Session()
-        self.sport_filter = SportFilter(tag_slug=config.SPORT_TAG_SLUG)
+        self.sport_filter = MultiSportFilter(config.SPORT_TAG_SLUGS)
 
     def fetch_recent_trades(self, address: str, limit: int = 20) -> List[dict]:
         url = f"{config.POLYMARKET_DATA_API}/trades"

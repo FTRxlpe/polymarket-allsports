@@ -30,9 +30,15 @@ logger.info(f"Loaded {_MODULE_VERSION}")
 
 
 class SportFilter:
-    def __init__(self, tag_slug: str = None, refresh_interval_seconds: int = 300):
+    def __init__(self, tag_slug: str = None, refresh_interval_seconds: int = 300,
+                 sanity_keywords: Optional[list] = None):
         self.tag_slug = tag_slug or config.SPORT_TAG_SLUG
         self.refresh_interval = refresh_interval_seconds
+        # Per-instance override for _sanity_check_slugs, for tags whose slug
+        # prefix doesn't literally match the tag name (e.g. tag "formula-one"
+        # but slugs prefixed "f1-"). Falls back to config.SANITY_CHECK_KEYWORDS,
+        # then to [tag_slug] if neither is set.
+        self._sanity_keywords = sanity_keywords
         self._slugs: Set[str] = set()               # active-only, for live trading
         self._historical_slugs: Set[str] = set()     # active + recently closed, for screening
         self._last_refresh = 0.0
@@ -253,7 +259,9 @@ class SportFilter:
         if getattr(config, "DISABLE_SANITY_CHECK", False):
             return True
 
-        keywords = getattr(config, "SANITY_CHECK_KEYWORDS", None) or [self.tag_slug.lower()]
+        keywords = (self._sanity_keywords
+                    or getattr(config, "SANITY_CHECK_KEYWORDS", None)
+                    or [self.tag_slug.lower()])
         sample = list(slugs)[:sample_size]
         return any(kw.lower() in s.lower() for s in sample for kw in keywords)
 
@@ -363,3 +371,45 @@ class SportFilter:
         if time.time() - self._last_historical_refresh > self.refresh_interval:
             self._refresh(include_closed=True)
         return slug in self._historical_slugs or slug in self._slugs
+
+
+class MultiSportFilter:
+    """Unions several single-tag SportFilters.
+
+    Confirmed via list_sport_tags.py against the live Gamma API: Polymarket
+    has NO generic umbrella tag for "all sports combined" — the closest
+    match for tag_slug="sports" is "fox-sports" (a broadcaster tag, not
+    sport content), and the numeric tag_id it was resolving to pointed at
+    unrelated non-sports markets. So "all sports" has to be built as a
+    union of the real per-sport tags (each of which already resolves
+    correctly and independently, the same way tennis/nba/ufc's single-tag
+    bots do) rather than one tag lookup.
+
+    Coverage is necessarily partial for domains Polymarket tags per
+    competition rather than per sport (soccer especially: dozens of
+    country/competition-specific tags like "soccer-auc", "champions-league"
+    instead of one "soccer" tag) — config.SPORT_TAG_SLUGS should be
+    refined/expanded based on what list_sport_tags.py finds over time.
+    """
+
+    def __init__(self, tag_slugs, refresh_interval_seconds: int = 300):
+        """`tag_slugs`: list of either a plain tag slug string (sanity check
+        defaults to expecting that slug itself in results), or a
+        (tag_slug, [expected_keywords]) tuple for tags whose real market
+        slug prefix differs from the tag name."""
+        self._filters = []
+        for entry in tag_slugs:
+            if isinstance(entry, (tuple, list)):
+                slug, keywords = entry[0], entry[1]
+            else:
+                slug, keywords = entry, None
+            self._filters.append(SportFilter(
+                tag_slug=slug, refresh_interval_seconds=refresh_interval_seconds,
+                sanity_keywords=keywords,
+            ))
+
+    def is_match(self, slug: str) -> bool:
+        return any(f.is_match(slug) for f in self._filters)
+
+    def is_match_historical(self, slug: str) -> bool:
+        return any(f.is_match_historical(slug) for f in self._filters)

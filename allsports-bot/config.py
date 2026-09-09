@@ -24,25 +24,44 @@ PAPER_TRADING = os.getenv("PAPER_TRADING", "true").lower() == "true"
 # below (see sport_filter.MultiSportFilter) instead of one tag lookup.
 SPORT_TAG_SLUG = "sports"
 
-# Real per-sport tags/leagues to union. Deliberately conservative for now:
-# only tags we have real confidence resolve correctly (their own name is a
-# proven slug prefix — nba-/nfl-/mlb-/nhl-/ufc-/tennis-style, the same
-# pattern the single-sport tennis/nba/ufc bots already rely on
-# successfully). nfl/nhl/mlb aren't generic /tags entries (confirmed via
-# list_sport_tags.py) but are "automated leagues" that sport_filter.py's
-# series_id path (GET /sports) resolves independently.
+# Real per-sport tags/leagues to union. Each entry is either a plain tag
+# slug (sanity check expects that slug itself in results) or a
+# (tag_slug, [expected_keywords]) tuple for tags whose real market-slug
+# prefix differs from the tag name — verified with sample_sport_slugs.py
+# against the live Gamma API, not guessed:
 #
-# NOT included yet: soccer, golf, motorsports, college sports, combat
-# sports beyond UFC. list_sport_tags.py found tags for these (e.g.
-# "champions-league", "formula-one", "boxingmma", "college-football") but
-# their real market-slug prefix is unverified — Polymarket often uses a
-# short abbreviation (e.g. likely "f1-" not "formula-one-") that doesn't
-# literally match the tag name, which would silently fail sport_filter.py's
-# sanity check and contribute nothing. Run sample_sport_slugs.py to find
-# each one's real prefix, then add it here as either "tag-slug" or
-# ("tag-slug", ["expected", "prefix", "keywords"]) if it differs.
+#   - nba/nfl/mlb/nhl/tennis: proven slug-prefix pattern (their own name IS
+#     the prefix — nba-lal-bos-..., nfl-week-7-..., atp-... for tennis).
+#     nfl/nhl/mlb aren't generic /tags entries but are "automated leagues"
+#     sport_filter.py's series_id path (GET /sports) resolves.
+#   - "ufc" alone does NOT resolve — there is no generic /tags entry for
+#     it, and it isn't in /sports either. Real UFC (and boxing) match
+#     markets live under tag_id=1355, slug "boxingmma" (sample checked:
+#     "ufc-303-who-will-win-...", "ufc-fight-night-who-will-win-...",
+#     "haney-vs-garcia-ruled-no-contest"), which doesn't contain "ufc" or
+#     "boxingmma" itself in most slugs, hence the custom keywords.
+#   - "formula-one" tag_id=100280 returns real race-outcome markets
+#     ("will-max-verstappen-win-the-british-grand-prix") but slugged
+#     "grand-prix", not "formula-one" — custom keyword needed too.
+#
+# Checked and deliberately EXCLUDED:
+#   - "champions-league" (tag_id=1234): only long-range futures props
+#     ("will-the-2027-uefa-champions-league-winner-come-from-england"),
+#     no actual match-level markets seen — low value for a whale-consensus
+#     strategy built around match outcomes.
+#   - "college-football" (tag_id=636): polluted with unrelated novelty
+#     markets (EA Sports cover-athlete votes, NFL draft speculation using
+#     college players' names) rather than actual game outcomes — including
+#     it would count irrelevant activity toward wallet screening.
+#
+# Still unverified: soccer (dozens of per-competition tags, no single
+# generic one — see list_sport_tags.py's "soccer-*" entries), golf,
+# motorsports beyond F1, cricket, rugby. Sample a tag_id with
+# sample_sport_slugs.py before adding it here.
 SPORT_TAG_SLUGS: List[str] = [
-    "nba", "nfl", "mlb", "nhl", "ufc", "tennis",
+    "nba", "nfl", "mlb", "nhl", "tennis",
+    ("boxingmma", ["ufc", "vs-", "fight-night"]),
+    ("formula-one", ["grand-prix"]),
 ]
 
 # Which category to pull the wallet leaderboard from (data-api.polymarket.com

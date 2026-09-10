@@ -15,14 +15,35 @@ Usage:
 """
 import argparse
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import requests
 
 import config
+from wallet_screening import fetch_trades, MAX_BUYS, LOOKBACK_WEEKS
 
 LEADERBOARD_URL = f"{config.POLYMARKET_DATA_API}/v1/leaderboard"
 TRADES_URL = f"{config.POLYMARKET_DATA_API}/trades"
+
+
+def count_recent_buys(address: str) -> int:
+    """How many BUY trades this wallet made in the last LOOKBACK_WEEKS weeks,
+    across ALL markets (no sport filter here — this script ranks by
+    all-time PnL across any category, so the check is generic trading
+    frequency, same threshold wallet_screening.py uses). Catches
+    market-maker/arb bots that rank highly on PnL purely from volume —
+    confirmed via backtest.py that including one such wallet (~135
+    buys/day) was enough to fake 14/14 consensus signals and produce a
+    -43% ROI. discover_top50_alltime.py never went through
+    wallet_screening.screen_wallet()'s MIN_BUYS/MAX_BUYS checks at all
+    (it only filters by PnL + recent activity), so re-running discovery
+    without this would have silently re-introduced the same wallet."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(weeks=LOOKBACK_WEEKS)).timestamp()
+    trades = fetch_trades(address)
+    return sum(
+        1 for t in trades
+        if (t.get("side") or "").upper() == "BUY" and float(t.get("timestamp", 0)) >= cutoff
+    )
 
 
 def fetch_leaderboard(order_by: str, limit: int, offset: int = 0, max_retries: int = 3) -> list:
@@ -98,6 +119,11 @@ def main():
     parser.add_argument("--max-inactive-days", type=float, default=14,
                          help="Only keep wallets whose most recent trade was within "
                               "this many days (default: 14 — i.e. active in the last 2 weeks)")
+    parser.add_argument("--max-buys", type=int, default=MAX_BUYS,
+                         help=f"Maximum buys in the last {LOOKBACK_WEEKS} weeks — above this a "
+                              f"wallet is presumed to be a market-maker/arb bot rather than a "
+                              f"conviction whale, regardless of how good its PnL looks "
+                              f"(default {MAX_BUYS})")
     parser.add_argument("--delay", type=float, default=1.0,
                          help="Seconds between activity-check calls, to avoid rate limits")
     args = parser.parse_args()
@@ -139,10 +165,20 @@ def main():
             print(f"[{checked}] {name} — skip (last trade {days_ago:.1f} days ago, too inactive)")
             continue
 
-        print(f"[{checked}] {name} — KEEP (last trade {days_ago:.1f} days ago), PnL {pnl_str}")
+        recent_buys = count_recent_buys(addr)
+        time.sleep(args.delay)
+        if recent_buys > args.max_buys:
+            print(
+                f"[{checked}] {name} — skip ({recent_buys} buys/{LOOKBACK_WEEKS}w, "
+                f"above {args.max_buys} — market-maker/bot pattern, not a conviction whale)"
+            )
+            continue
+
+        print(f"[{checked}] {name} — KEEP (last trade {days_ago:.1f} days ago, "
+              f"{recent_buys} buys/{LOOKBACK_WEEKS}w), PnL {pnl_str}")
         line = (
             f'    "{name}": "{addr}",  # all-time PnL {pnl_str}, vol {vol_str}, '
-            f'last active {days_ago:.1f}d ago'
+            f'last active {days_ago:.1f}d ago, {recent_buys} buys/{LOOKBACK_WEEKS}w'
         )
         lines.append(line)
         kept += 1

@@ -11,8 +11,10 @@ done?" using real historical data instead of guessing.
 
 Usage:
     python backtest.py --days 30
+    python backtest.py --days 60 --wallets-file found_wallets_politics.txt
 """
 import argparse
+import os
 import time
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
@@ -23,6 +25,20 @@ import config
 from market_resolver import MarketResolver
 
 TRADES_URL = f"{config.POLYMARKET_DATA_API}/trades"
+
+
+def load_wallets(path: str) -> dict:
+    """Loads a WATCHED_WALLETS dict from a discover_top50_alltime.py output
+    file (e.g. found_wallets_politics.txt) instead of config.WATCHED_WALLETS
+    — lets you backtest a specific category's discovered wallets without
+    renaming files or editing config.py."""
+    ns = {}
+    with open(path) as f:
+        exec(f.read(), ns)
+    wallets = ns.get("WATCHED_WALLETS")
+    if not wallets:
+        raise ValueError(f"No WATCHED_WALLETS dict found in {path}")
+    return wallets
 
 
 def fetch_wallet_trades(address: str, since_ts: float, max_retries: int = 3) -> list:
@@ -151,19 +167,28 @@ def main():
     parser.add_argument("--delay", type=float, default=0.8)
     parser.add_argument("--check-outcomes", action="store_true", default=True,
                          help="Look up win/loss for each base signal (slower)")
+    parser.add_argument("--wallets-file", type=str, default=None,
+                         help="Backtest the WATCHED_WALLETS dict from this file instead of "
+                              "config.WATCHED_WALLETS — e.g. found_wallets_politics.txt from "
+                              "discover_top50_alltime.py --category POLITICS")
     args = parser.parse_args()
 
     since_ts = (datetime.now(timezone.utc) - timedelta(days=args.days)).timestamp()
 
-    print(f"Backtesting {len(config.WATCHED_WALLETS)} wallets over the last {args.days} days...")
+    wallets = config.WATCHED_WALLETS
+    if args.wallets_file:
+        wallets = load_wallets(args.wallets_file)
+        print(f"Loaded {len(wallets)} wallets from {args.wallets_file}")
+
+    print(f"Backtesting {len(wallets)} wallets over the last {args.days} days...")
     print(f"Thresholds: base={config.CONSENSUS_WALLET_THRESHOLD}, "
           f"double_up={config.DOUBLE_UP_THRESHOLD}, window={config.TIME_WINDOW_MINUTES}min\n")
 
     all_events = []
-    for i, (nickname, address) in enumerate(config.WATCHED_WALLETS.items(), 1):
+    for i, (nickname, address) in enumerate(wallets.items(), 1):
         trades = fetch_wallet_trades(address.lower(), since_ts)
         buys = [t for t in trades if (t.get("side") or "").upper() == "BUY"]
-        print(f"[{i}/{len(config.WATCHED_WALLETS)}] {nickname}: {len(buys)} buys in window")
+        print(f"[{i}/{len(wallets)}] {nickname}: {len(buys)} buys in window")
         for t in buys:
             all_events.append({
                 "wallet": nickname,

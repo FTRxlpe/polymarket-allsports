@@ -152,8 +152,8 @@ if os.path.exists(_wallets_file):
 # --------------------------------------------------------------------------
 # Trigger a trade the moment this many DISTINCT watched wallets have bought
 # the same outcome of the same market within TIME_WINDOW_MINUTES.
-CONSENSUS_WALLET_THRESHOLD = 2   # trade the instant 2 wallets agree
-DOUBLE_UP_THRESHOLD = 4          # if 4+ agree, place a second same-size trade to double total stake
+CONSENSUS_WALLET_THRESHOLD = 3   # trade the instant 3 wallets agree
+DOUBLE_UP_THRESHOLD = 6          # if 6+ agree, place a second same-size trade to double total stake
 
 # Window during which wallets buying the same outcome are considered part of
 # the same signal. Kept short since the goal is near-simultaneous agreement,

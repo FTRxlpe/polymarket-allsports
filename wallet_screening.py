@@ -108,6 +108,49 @@ def fetch_recent_buys(address: str, weeks: int, max_count: int,
     return buys, False
 
 
+def compute_win_rate(buys: list, throttle: float = 0.0) -> tuple:
+    """Resolves every unique market in `buys` (no sport filter — works for
+    any category: crypto, politics, culture, etc.) and tallies wins/losses
+    by comparing each trade's outcome against the market's real winner
+    (via outcomePrices, see market_resolver.get_winning_outcome — not the
+    nonexistent "winningOutcome" field). Only resolved (closed, settled)
+    markets count; everything else is silently excluded, never guessed.
+
+    `throttle`: optional sleep between market lookups, for callers
+    screening a single wallet that might touch many unique markets
+    (avoids hammering the Gamma API). Leave at 0 for a discovery script
+    that's already rate-limiting between whole candidates.
+
+    Returns (wins, losses, total_resolved, win_rate) — win_rate is None
+    if total_resolved is 0."""
+    from market_resolver import MarketResolver, get_winning_outcome
+    resolver = MarketResolver()
+
+    by_market = defaultdict(list)
+    for t in buys:
+        by_market[t.get("slug")].append(t)
+
+    wins = losses = 0
+    for slug, market_trades in by_market.items():
+        market = resolver._get_market(slug)
+        if throttle:
+            time.sleep(throttle)
+        if not market or not market.get("closed"):
+            continue
+        winning_outcome = get_winning_outcome(market)
+        if not winning_outcome:
+            continue
+        for t in market_trades:
+            if str(t.get("outcome", "")).lower() == str(winning_outcome).lower():
+                wins += 1
+            else:
+                losses += 1
+
+    total_resolved = wins + losses
+    win_rate = (wins / total_resolved) if total_resolved else None
+    return wins, losses, total_resolved, win_rate
+
+
 def screen_wallet(address: str, min_buys: int = None, min_win_rate: float = None,
                    max_buys: int = None) -> dict:
     """min_buys / min_win_rate / max_buys override the module defaults
@@ -152,29 +195,7 @@ def screen_wallet(address: str, min_buys: int = None, min_win_rate: float = None
     wins = losses = total_resolved = 0
     win_rate = None
     if meets_activity_bar:
-        from market_resolver import MarketResolver, get_winning_outcome
-        resolver = MarketResolver()
-
-        by_market = defaultdict(list)
-        for t in sport_buys:
-            by_market[t.get("slug")].append(t)
-
-        for slug, market_trades in by_market.items():
-            market = resolver._get_market(slug)
-            time.sleep(0.15)  # avoid hammering the Gamma API when a wallet touches many markets
-            if not market or not market.get("closed"):
-                continue
-            winning_outcome = get_winning_outcome(market)
-            if not winning_outcome:
-                continue
-            for t in market_trades:
-                if str(t.get("outcome", "")).lower() == str(winning_outcome).lower():
-                    wins += 1
-                else:
-                    losses += 1
-
-        total_resolved = wins + losses
-        win_rate = (wins / total_resolved) if total_resolved else None
+        wins, losses, total_resolved, win_rate = compute_win_rate(sport_buys, throttle=0.15)
 
     meets_winrate_bar = (win_rate is not None and win_rate >= min_win_rate)
 

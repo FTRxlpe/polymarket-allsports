@@ -39,12 +39,14 @@ MIN_WIN_RATE = 0.50
 _sport_filter = MultiSportFilter(config.SPORT_TAG_SLUGS)
 
 
-def fetch_trades(address: str, limit: int = 500, max_retries: int = 4) -> list:
+def fetch_trades(address: str, limit: int = 500, offset: int = 0, max_retries: int = 4) -> list:
     url = f"{config.POLYMARKET_DATA_API}/trades"
     delay = 1.5
     for attempt in range(max_retries):
         try:
-            resp = requests.get(url, params={"user": address, "limit": limit}, timeout=15)
+            resp = requests.get(
+                url, params={"user": address, "limit": limit, "offset": offset}, timeout=15
+            )
             if resp.status_code == 429:
                 logger.warning(
                     f"Rate limited (429) for {address}, retrying in {delay:.1f}s "
@@ -62,6 +64,50 @@ def fetch_trades(address: str, limit: int = 500, max_retries: int = 4) -> list:
     return []
 
 
+def fetch_recent_buys(address: str, weeks: int, max_count: int,
+                       page_size: int = 500, max_pages: int = 20) -> tuple:
+    """Paginates through `address`'s FULL trade history (every category,
+    not just the sport(s) being screened) to collect every BUY trade within
+    the last `weeks` weeks, stopping as soon as more than `max_count` have
+    been found.
+
+    A single capped fetch_trades(limit=500) call badly undercounts a
+    hyperactive wallet: for one trading ~135 times/day (confirmed via
+    backtest.py — see MAX_BUYS above), the 500 most recent trades cover
+    under 4 days, nowhere near the 10-week lookback window, so its true
+    volume never surfaces and MAX_BUYS can never trigger. This paginates
+    properly instead, and checks TOTAL activity across every category
+    (not just the sport being screened) since that's the actual signature
+    of a market-maker/arb bot — its sport-specific volume alone can look
+    perfectly modest even while its overall activity is enormous.
+
+    Returns (buys, exceeded_max). When exceeded_max is True, `buys` is a
+    partial/incomplete list (collection stopped early) — use it only as
+    evidence the wallet is over max_count, never as its true trade history.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(weeks=weeks)).timestamp()
+    buys = []
+    offset = 0
+    for _ in range(max_pages):
+        page = fetch_trades(address, limit=page_size, offset=offset)
+        if not page:
+            break
+        reached_cutoff = False
+        for t in page:
+            ts = float(t.get("timestamp", 0))
+            if ts < cutoff:
+                reached_cutoff = True
+                continue
+            if (t.get("side") or "").upper() == "BUY":
+                buys.append(t)
+        if len(buys) > max_count:
+            return buys, True
+        if reached_cutoff or len(page) < page_size:
+            break
+        offset += page_size
+    return buys, False
+
+
 def screen_wallet(address: str, min_buys: int = None, min_win_rate: float = None,
                    max_buys: int = None) -> dict:
     """min_buys / min_win_rate / max_buys override the module defaults
@@ -75,23 +121,34 @@ def screen_wallet(address: str, min_buys: int = None, min_win_rate: float = None
         max_buys = MAX_BUYS
 
     address = address.lower()
-    cutoff = (datetime.now(timezone.utc) - timedelta(weeks=LOOKBACK_WEEKS)).timestamp()
 
-    trades = fetch_trades(address)
-    sport_buys = [
-        t for t in trades
-        if _sport_filter.is_match_historical(t.get("slug") or "")
-        and (t.get("side") or "").upper() == "BUY"
-        and float(t.get("timestamp", 0)) >= cutoff
-    ]
+    # Check TOTAL activity (every category) first, properly paginated with
+    # early exit — see fetch_recent_buys' docstring for why this has to
+    # come before anything sport-specific. If the wallet is already over
+    # max_buys, skip the sport filtering and win-rate computation entirely:
+    # the result is discarded either way.
+    all_recent_buys, exceeded_max = fetch_recent_buys(address, weeks=LOOKBACK_WEEKS, max_count=max_buys)
 
-    meets_activity_bar = min_buys <= len(sport_buys) <= max_buys
+    if exceeded_max:
+        return {
+            "address": address,
+            "buys_last_10w": None,  # true count unknown — collection stopped early once > max_buys
+            "resolved_markets": 0,
+            "wins": 0,
+            "losses": 0,
+            "win_rate": None,
+            "meets_activity_bar": False,
+            "meets_winrate_bar": False,
+            "qualifies": False,
+        }
+
+    sport_buys = [t for t in all_recent_buys if _sport_filter.is_match_historical(t.get("slug") or "")]
+    meets_activity_bar = len(sport_buys) >= min_buys
 
     # Win-rate computation resolves every unique market the wallet touched,
-    # each with a deliberate throttling sleep — for a hyperactive wallet
-    # (hundreds/thousands of unique markets) that's minutes of work for a
-    # result that's discarded anyway once meets_activity_bar is already
-    # False. Skip it entirely in that case.
+    # each with a deliberate throttling sleep — for a wallet with many
+    # unique markets that's real work for a result that's discarded anyway
+    # once meets_activity_bar is already False. Skip it entirely in that case.
     wins = losses = total_resolved = 0
     win_rate = None
     if meets_activity_bar:

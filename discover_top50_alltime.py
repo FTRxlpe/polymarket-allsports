@@ -20,13 +20,13 @@ from datetime import datetime, timezone, timedelta
 import requests
 
 import config
-from wallet_screening import fetch_trades, MAX_BUYS, LOOKBACK_WEEKS
+from wallet_screening import fetch_recent_buys, MAX_BUYS, LOOKBACK_WEEKS
 
 LEADERBOARD_URL = f"{config.POLYMARKET_DATA_API}/v1/leaderboard"
 TRADES_URL = f"{config.POLYMARKET_DATA_API}/trades"
 
 
-def count_recent_buys(address: str) -> int:
+def count_recent_buys(address: str, max_count: int) -> tuple:
     """How many BUY trades this wallet made in the last LOOKBACK_WEEKS weeks,
     across ALL markets (no sport filter here — this script ranks by
     all-time PnL across any category, so the check is generic trading
@@ -37,13 +37,21 @@ def count_recent_buys(address: str) -> int:
     -43% ROI. discover_top50_alltime.py never went through
     wallet_screening.screen_wallet()'s MIN_BUYS/MAX_BUYS checks at all
     (it only filters by PnL + recent activity), so re-running discovery
-    without this would have silently re-introduced the same wallet."""
-    cutoff = (datetime.now(timezone.utc) - timedelta(weeks=LOOKBACK_WEEKS)).timestamp()
-    trades = fetch_trades(address)
-    return sum(
-        1 for t in trades
-        if (t.get("side") or "").upper() == "BUY" and float(t.get("timestamp", 0)) >= cutoff
-    )
+    without this would have silently re-introduced the same wallet.
+
+    Delegates to wallet_screening.fetch_recent_buys, which paginates
+    properly with early exit once max_count is passed — a single capped
+    fetch (limit=500, no pagination) undercounts a hyperactive wallet
+    badly: its 500 most recent trades might cover only a few days, so its
+    true volume never surfaces and this check could never trigger. That
+    exact gap is how whale-2c3350 slipped back into a discovery run even
+    after this ceiling was first added — see wallet_screening.py.
+
+    Returns (count_or_None, exceeded) — count is None when exceeded is
+    True (collection stopped early, so the exact number is unknown, only
+    that it's over max_count)."""
+    buys, exceeded = fetch_recent_buys(address, weeks=LOOKBACK_WEEKS, max_count=max_count)
+    return (None if exceeded else len(buys)), exceeded
 
 
 def fetch_leaderboard(order_by: str, limit: int, offset: int = 0, max_retries: int = 3) -> list:
@@ -165,12 +173,12 @@ def main():
             print(f"[{checked}] {name} — skip (last trade {days_ago:.1f} days ago, too inactive)")
             continue
 
-        recent_buys = count_recent_buys(addr)
+        recent_buys, exceeded = count_recent_buys(addr, args.max_buys)
         time.sleep(args.delay)
-        if recent_buys > args.max_buys:
+        if exceeded:
             print(
-                f"[{checked}] {name} — skip ({recent_buys} buys/{LOOKBACK_WEEKS}w, "
-                f"above {args.max_buys} — market-maker/bot pattern, not a conviction whale)"
+                f"[{checked}] {name} — skip (>{args.max_buys} buys/{LOOKBACK_WEEKS}w — "
+                f"market-maker/bot pattern, not a conviction whale)"
             )
             continue
 

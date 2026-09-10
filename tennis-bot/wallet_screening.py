@@ -20,7 +20,7 @@ from datetime import datetime, timezone, timedelta
 import requests
 
 import config
-from sport_filter import MultiSportFilter
+from sport_filter import SportFilter
 
 logger = logging.getLogger("wallet_screening")
 
@@ -28,7 +28,7 @@ LOOKBACK_WEEKS = 10
 MIN_BUYS = 8
 MIN_WIN_RATE = 0.50
 
-_sport_filter = MultiSportFilter(config.SPORT_TAG_SLUGS)
+_sport_filter = SportFilter(tag_slug=config.SPORT_TAG_SLUG)
 
 
 def fetch_trades(address: str, limit: int = 500, max_retries: int = 4) -> list:
@@ -69,7 +69,7 @@ def screen_wallet(address: str, min_buys: int = None, min_win_rate: float = None
     trades = fetch_trades(address)
     sport_buys = [
         t for t in trades
-        if _sport_filter.is_match_historical(t.get("slug") or "")
+        if _sport_filter.is_match(t.get("slug") or "")
         and (t.get("side") or "").upper() == "BUY"
         and float(t.get("timestamp", 0)) >= cutoff
     ]
@@ -84,7 +84,6 @@ def screen_wallet(address: str, min_buys: int = None, min_win_rate: float = None
 
     for slug, market_trades in by_market.items():
         market = resolver._get_market(slug)
-        time.sleep(0.15)  # avoid hammering the Gamma API when a wallet touches many markets
         if not market or not market.get("closed"):
             continue
         winning_outcome = get_winning_outcome(market)

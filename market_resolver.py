@@ -4,8 +4,8 @@ needed to place an order, using Polymarket's public Gamma API.
 
 IMPORTANT: /markets?slug=X is documented to return an empty result for many
 real, valid markets — especially individual sub-markets belonging to a
-multi-outcome event (e.g. "atp-alcaraz-sinner-2026-09-06-alcaraz", one of
-several markets under a shared tournament event). This is a known Polymarket
+multi-outcome event (e.g. "epl-ars-che-2026-09-06-ars", one of several
+markets under the "epl-ars-che-2026-09-06" event). This is a known Polymarket
 API quirk, not something specific to our code — confirmed by multiple
 independent bug reports against the same endpoint.
 
@@ -82,6 +82,8 @@ class MarketResolver:
         """Primary path: fetch the event containing this market by slug, and
         pull the specific market out of its nested markets array. Works even
         for sub-markets that /markets?slug= fails to find."""
+        # First try: the slug IS the event's own slug (single-market events,
+        # or when the market slug happens to match the event slug).
         events = self._fetch_with_retry(f"{GAMMA_API}/events", {"slug": slug})
         if events:
             for event in events:
@@ -92,6 +94,7 @@ class MarketResolver:
                 # return its one market as a reasonable fallback.
                 if len(event.get("markets", [])) == 1:
                     return event["markets"][0]
+
         return None
 
     def _get_market_via_markets_endpoint(self, slug: str) -> Optional[dict]:
@@ -113,9 +116,11 @@ class MarketResolver:
 
         if not market:
             logger.warning(f"No market found on Gamma API for slug={slug} (tried both /events and /markets)")
-            # Cache the miss too (same TTL) — without this, the same
-            # unresolvable slug gets re-fetched from scratch every time a
-            # different wallet's screening touches it.
+            # Cache the miss too (shorter TTL than a hit) — without this,
+            # the same unresolvable slug (typically a deep prop/total
+            # sub-market /events can't find) gets re-fetched from scratch
+            # every time a different wallet's screening touches it, which
+            # in practice meant thousands of redundant repeated lookups.
             _cache[slug] = (time.time(), None)
             return None
 
@@ -136,10 +141,11 @@ class MarketResolver:
         token_ids = market.get("clobTokenIds")
 
         # Gamma API sometimes returns these as JSON-encoded strings
+        import json as _json
         if isinstance(outcomes, str):
-            outcomes = json.loads(outcomes)
+            outcomes = _json.loads(outcomes)
         if isinstance(token_ids, str):
-            token_ids = json.loads(token_ids)
+            token_ids = _json.loads(token_ids)
 
         if not outcomes or not token_ids or len(outcomes) != len(token_ids):
             logger.warning(f"Malformed outcomes/tokenIds for {slug}: {market}")

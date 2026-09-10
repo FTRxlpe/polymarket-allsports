@@ -32,7 +32,7 @@ logger = logging.getLogger("main")
 
 def main():
     mode = "PAPER" if config.PAPER_TRADING else "LIVE"
-    logger.info(f"=== Polymarket {config.SPORT_TAG_SLUG.upper()} Whale-Consensus Bot starting in {mode} mode ===")
+    logger.info(f"=== Polymarket Tennis Whale-Consensus Bot starting in {mode} mode ===")
 
     tracker = WalletTracker()
     consensus = ConsensusEngine()
@@ -43,11 +43,9 @@ def main():
     def handle_new_trades(trades):
         signals = consensus.ingest(trades)
         for signal in signals:
-            is_addition = (signal.signal_type == "double_up")
-
-            rejection_reason = risk.check(signal, is_addition=is_addition)
+            rejection_reason = risk.check(signal)
             if rejection_reason:
-                logger.info(f"[SKIP] {signal.market_slug}/{signal.outcome} ({signal.signal_type}): {rejection_reason}")
+                logger.info(f"[SKIP] {signal.market_slug}/{signal.outcome}: {rejection_reason}")
                 continue
 
             # Live-mode safety checks: confirm the market is still open and
@@ -68,17 +66,14 @@ def main():
             bet_size = risk.compute_bet_size(signal.multiplier)
 
             logger.info(
-                f"[ACTING - {signal.signal_type.upper()}] {signal.market_slug} / "
-                f"{signal.outcome} — ${bet_size:.2f} — {signal.wallet_count} "
-                f"wallets agreed: {signal.contributing_wallets}"
+                f"[ACTING] {signal.market_slug} / {signal.outcome} — "
+                f"${bet_size:.2f} — {signal.wallet_count} wallets agreed: "
+                f"{signal.contributing_wallets}"
             )
 
             executor.execute(signal, bet_size, token_id=token_id)
-            risk.record_bet_placed(signal, bet_size, is_addition=is_addition)
-            # Note: consensus.clear_market() is intentionally NOT called here.
-            # The pending signal state must persist so a later double_up
-            # signal on the same market+outcome can still be detected. It
-            # naturally expires after TIME_WINDOW_MINUTES via _prune_expired().
+            risk.record_bet_placed(signal, bet_size)
+            consensus.clear_market(signal.market_slug)
 
     tracker.run_forever(on_trades_callback=handle_new_trades)
 

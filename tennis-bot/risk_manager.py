@@ -3,7 +3,7 @@ Implements strategy layers 4-10:
   4. Bankroll Sizer        8. Price Range Guard
   5. Daily Budget Cap      9. Max Open Positions
   6. Cooldown Lock        10. Loss Streak Pause
-  7. Category Filter (also enforced in wallet_tracker as an early filter)
+  7. Tennis-Only Filter (also enforced in wallet_tracker as an early filter)
 
 State is persisted to state/risk_state.json so a restart doesn't reset caps,
 cooldowns, or the loss-streak counter.
@@ -28,8 +28,8 @@ STATE_PATH = os.path.join(os.path.dirname(__file__), "state", "risk_state.json")
 class OpenPosition:
     market_slug: str
     outcome: str
-    shares: float           # total outcome shares held (accumulates on double_up)
-    bet_size_usd: float     # total USD staked (base + any double_up)
+    price: float          # entry price paid per share
+    bet_size_usd: float    # total USD staked
     opened_at: float = field(default_factory=time.time)
 
 
@@ -89,12 +89,9 @@ class RiskManager:
         return min(base * multiplier, max_bet)
 
     # ---------------- gate check (layers 5,6,8,9,10) ----------------
-    def check(self, signal: ConsensusSignal, is_addition: bool = False) -> Optional[str]:
+    def check(self, signal: ConsensusSignal) -> Optional[str]:
         """Returns None if the signal passes all risk checks, else a string
-        reason for why it was rejected. `is_addition=True` (used for
-        double_up signals) skips the cooldown and already-open-position
-        checks, since that trade is intentionally adding to a position the
-        bot itself just opened moments earlier — not a fresh, separate bet."""
+        reason for why it was rejected."""
         self._roll_day_if_needed()
 
         if self.state.paused:
@@ -108,20 +105,19 @@ class RiskManager:
         if self.state.bets_today >= tier.max_bets_per_day:
             return f"max bets/day reached ({self.state.bets_today}/{tier.max_bets_per_day})"
 
-        if not is_addition and len(self.state.open_positions) >= config.MAX_OPEN_POSITIONS:
+        if len(self.state.open_positions) >= config.MAX_OPEN_POSITIONS:
             return f"max open positions reached ({config.MAX_OPEN_POSITIONS})"
 
-        if not is_addition:
-            cooldown_key = f"{signal.market_slug}|{signal.outcome}"
-            expiry = self.state.cooldowns.get(cooldown_key)
-            if expiry and time.time() < expiry:
-                remaining = int((expiry - time.time()) / 60)
-                return f"cooldown active on {cooldown_key} ({remaining} min left)"
+        cooldown_key = f"{signal.market_slug}|{signal.outcome}"
+        expiry = self.state.cooldowns.get(cooldown_key)
+        if expiry and time.time() < expiry:
+            remaining = int((expiry - time.time()) / 60)
+            return f"cooldown active on {cooldown_key} ({remaining} min left)"
 
         if not (config.PRICE_MIN <= signal.avg_price <= config.PRICE_MAX):
             return f"price {signal.avg_price:.2f} outside range [{config.PRICE_MIN}, {config.PRICE_MAX}]"
 
-        if not is_addition and self._has_open_position(signal.market_slug):
+        if self._has_open_position(signal.market_slug):
             return "position already open on this market"
 
         return None  # all checks passed
@@ -130,38 +126,22 @@ class RiskManager:
         return any(p["market_slug"] == market_slug for p in self.state.open_positions)
 
     # ---------------- state mutation after acting on a signal ----------------
-    def record_bet_placed(self, signal: ConsensusSignal, bet_size: float, is_addition: bool = False):
+    def record_bet_placed(self, signal: ConsensusSignal, bet_size: float):
         self.state.spent_today += bet_size
         self.state.bets_today += 1
-        shares = bet_size / signal.avg_price if signal.avg_price else 0.0
-
-        if is_addition:
-            # Double-up: fold into the existing position on this market
-            # instead of opening a second one, so PnL reconciles against the
-            # full cumulative stake (base + double_up) once it resolves.
-            for pos in self.state.open_positions:
-                if pos["market_slug"] == signal.market_slug:
-                    pos["shares"] += shares
-                    pos["bet_size_usd"] += bet_size
-                    break
-            else:
-                self.state.open_positions.append(asdict(OpenPosition(
-                    market_slug=signal.market_slug, outcome=signal.outcome,
-                    shares=shares, bet_size_usd=bet_size,
-                )))
-        else:
-            self.state.open_positions.append(asdict(OpenPosition(
-                market_slug=signal.market_slug, outcome=signal.outcome,
-                shares=shares, bet_size_usd=bet_size,
-            )))
-            cooldown_key = f"{signal.market_slug}|{signal.outcome}"
-            self.state.cooldowns[cooldown_key] = time.time() + config.COOLDOWN_MINUTES * 60
-
+        self.state.open_positions.append(asdict(OpenPosition(
+            market_slug=signal.market_slug,
+            outcome=signal.outcome,
+            price=signal.avg_price,
+            bet_size_usd=bet_size,
+        )))
+        cooldown_key = f"{signal.market_slug}|{signal.outcome}"
+        self.state.cooldowns[cooldown_key] = time.time() + config.COOLDOWN_MINUTES * 60
         self._save()
         logger.info(
-            f"[BET PLACED{' - DOUBLE-UP' if is_addition else ''}] "
-            f"{signal.market_slug} / {signal.outcome} ${bet_size:.2f} "
-            f"(wallet_count={signal.wallet_count}, type={signal.signal_type})"
+            f"[BET PLACED] {signal.market_slug} / {signal.outcome} "
+            f"${bet_size:.2f} (wallets={signal.wallet_count}, "
+            f"multiplier={signal.multiplier}x)"
         )
 
     def record_result(self, market_slug: str, won: bool, pnl: float):

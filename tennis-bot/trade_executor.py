@@ -73,7 +73,6 @@ class TradeExecutor:
             "price": signal.avg_price,
             "bet_size_usd": bet_size_usd,
             "wallet_count": signal.wallet_count,
-            "signal_type": signal.signal_type,
             "contributing_wallets": signal.contributing_wallets,
             "mode": "paper",
         }
@@ -121,7 +120,6 @@ class TradeExecutor:
             "price": signal.avg_price,
             "bet_size_usd": bet_size_usd,
             "wallet_count": signal.wallet_count,
-            "signal_type": signal.signal_type,
             "contributing_wallets": signal.contributing_wallets,
             "order_response": resp,
             "mode": "live",

@@ -87,11 +87,11 @@ def main():
     parser.add_argument("--top", type=int, default=50, help="Max number of qualified wallets to output")
     parser.add_argument("--output", type=str, default=None, help="Optional file to also write results to")
     parser.add_argument("--min-buys", type=int, default=MIN_BUYS,
-                         help=f"Minimum {config.SPORT_TAG_SLUG} buys in the last {LOOKBACK_WEEKS} weeks to qualify (default {MIN_BUYS})")
+                         help=f"Minimum tennis buys in the last {LOOKBACK_WEEKS} weeks to qualify (default {MIN_BUYS})")
     parser.add_argument("--min-winrate", type=float, default=MIN_WIN_RATE,
-                         help=f"Minimum win rate (0-1) on resolved {config.SPORT_TAG_SLUG} positions to qualify (default {MIN_WIN_RATE})")
+                         help=f"Minimum win rate (0-1) on resolved tennis positions to qualify (default {MIN_WIN_RATE})")
     parser.add_argument("--fallback-ranked", action="store_true",
-                         help="If nothing qualifies, still output the most sport-active "
+                         help="If nothing qualifies, still output the most tennis-active "
                               "candidates found, ranked by activity, instead of nothing")
     parser.add_argument("--delay", type=float, default=1.0,
                          help="Seconds to wait between each wallet screening call, to "
@@ -103,9 +103,9 @@ def main():
     candidates = gather_candidates()
     print(f"{len(candidates)} unique candidate wallets found in the sports leaderboard.\n")
 
-    print(f"Screening each one for real {config.SPORT_TAG_SLUG} activity:")
-    print(f"  - >= {args.min_buys} {config.SPORT_TAG_SLUG} buys in the last {LOOKBACK_WEEKS} weeks")
-    print(f"  - >= {args.min_winrate:.0%} win rate on resolved {config.SPORT_TAG_SLUG} positions\n")
+    print(f"Screening each one for real tennis activity:")
+    print(f"  - >= {args.min_buys} tennis buys in the last {LOOKBACK_WEEKS} weeks")
+    print(f"  - >= {args.min_winrate:.0%} win rate on resolved tennis positions\n")
 
     all_results = []
     qualified = []
@@ -119,7 +119,7 @@ def main():
         wr_str = f"{result['win_rate']:.1%}" if result["win_rate"] is not None else "n/a"
         print(
             f"[{i}/{len(candidates)}] {addr} ({result['leaderboard_username'] or 'no username'}) "
-            f"— {status} — {result['buys_last_10w']} {config.SPORT_TAG_SLUG} buys/10w, win rate {wr_str}"
+            f"— {status} — {result['buys_last_10w']} tennis buys/10w, win rate {wr_str}"
         )
 
         all_results.append(result)
@@ -127,7 +127,7 @@ def main():
             qualified.append(result)
         time.sleep(args.delay)  # be polite to the public API and avoid 429s
 
-    # Rank qualified wallets by win rate (ties broken by activity)
+    # Rank qualified wallets by tennis win rate (ties broken by activity)
     qualified.sort(key=lambda r: (r["win_rate"] or 0, r["buys_last_10w"]), reverse=True)
     qualified = qualified[: args.top]
 
@@ -138,7 +138,7 @@ def main():
         print(
             f"No wallets passed both bars (>= {args.min_buys} buys, >= "
             f"{args.min_winrate:.0%} win rate). Polymarket's SPORTS "
-            f"leaderboard covers all sports, so genuine {config.SPORT_TAG_SLUG} specialists "
+            f"leaderboard covers all sports, so genuine tennis specialists "
             f"are a small subset — this is a real result, not necessarily a "
             f"bug. Try: python auto_discover_wallets.py --min-buys 2 "
             f"--min-winrate 0.4 --fallback-ranked"
@@ -148,7 +148,7 @@ def main():
             ranked.sort(key=lambda r: (r["buys_last_10w"], r["win_rate"] or 0), reverse=True)
             result_set = ranked[: args.top]
             print(f"\n--fallback-ranked: showing the {len(result_set)} most "
-                  f"{config.SPORT_TAG_SLUG}-active candidates found, even though they didn't "
+                  f"tennis-active candidates found, even though they didn't "
                   f"clear the bar above. Review these manually before trusting them.\n")
         else:
             return
@@ -158,13 +158,7 @@ def main():
     for r in result_set:
         nickname = r["leaderboard_username"] or f"whale-{r['address'][2:8]}"
         wr_str = f"{r['win_rate']:.1%}" if r["win_rate"] is not None else "n/a"
-        pnl_str = f"${r['leaderboard_pnl']:,.0f}" if r.get("leaderboard_pnl") is not None else "n/a"
-        vol_str = f"${r['leaderboard_vol']:,.0f}" if r.get("leaderboard_vol") is not None else "n/a"
-        line = (
-            f'    "{nickname}": "{r["address"]}",  '
-            f'# {r["buys_last_10w"]} {config.SPORT_TAG_SLUG} buys/10w, win rate {wr_str}, '
-            f'leaderboard PnL {pnl_str}, vol {vol_str}'
-        )
+        line = f'    "{nickname}": "{r["address"]}",  # win rate {wr_str}, {r["buys_last_10w"]} buys/10w'
         print(line)
         lines.append(line)
 

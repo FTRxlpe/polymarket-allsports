@@ -1,8 +1,18 @@
-# Polymarket Tennis Whale-Consensus Bot
+# Polymarket All-Sports Whale-Consensus Bot
 
-Tracks 50 watched wallets. The moment **5 of them buy the same outcome of
-the same tennis match** within a 15-minute window, the bot fires a trade
-instantly (next poll cycle, every 5s by default) for the same position.
+Tracks up to 50 watched wallets across **all sports combined** (not one
+specific sport). Two-tier trading rule:
+- The instant **3 wallets** buy the same outcome of the same market, the
+  bot places a trade.
+- If it later reaches **6 wallets** agreeing (same market+outcome, same
+  15-minute window), the bot places a **second trade of the same size**,
+  doubling the cumulative stake on that position.
+
+Polls every 2 seconds by default for near-instant reaction to reduce the
+risk of the odds moving before the bot's copy trade lands.
+
+> This repo also has a tennis-only variant (single-tier, 5-wallet
+> consensus) in [`tennis-bot/`](tennis-bot/) — see its own README there.
 
 ## ⚠️ Read this before doing anything else
 
@@ -28,7 +38,7 @@ instantly (next poll cycle, every 5s by default) for the same position.
 ## Setup
 
 ```bash
-cd polymarket-tennis
+cd polymarket-allsports
 pip install -r requirements.txt
 cp .env.example .env
 # edit .env: set WALLET_ADDRESS, STARTING_BANKROLL. Leave PAPER_TRADING=true.
@@ -39,37 +49,42 @@ cp .env.example .env
 ### Option A: Automatic discovery (recommended)
 
 ```bash
-python auto_discover_wallets.py --top 50 --output found_wallets.txt
+python discover_top50_alltime.py --top 50 --order PNL
 ```
 
-This pulls Polymarket's own official leaderboard
-(`data-api.polymarket.com/v1/leaderboard`, `category=SPORTS`, PnL and
-volume, across weekly/monthly windows — no scraping, no API key), then
-screens every candidate's *actual* trade history for genuine tennis
-activity and win rate. Polymarket doesn't expose a tennis-only leaderboard,
-so this two-step approach (broad sports leaderboard → tennis-specific
-screening) is how it narrows down to real tennis specialists rather than
-just general sports bettors. Paste the output into `WATCHED_WALLETS` in
-`config.py`.
+This pulls the top wallets from Polymarket's official SPORTS leaderboard
+using `timePeriod=ALL` (performance since each account's creation, not
+weekly/monthly), skips negative-PnL wallets by default, and writes a
+ready-to-paste `WATCHED_WALLETS` block to `found_wallets_top50.txt`, which
+`config.py` picks up automatically on the next run (falling back to a
+smaller built-in wallet list otherwise — see `config.py` for details).
+
+Since the bot tracks all sports combined, no per-sport activity screening
+is needed — strong all-time PnL in the SPORTS category is the qualifying
+bar directly. (`auto_discover_wallets.py` also exists for a stricter,
+single-sport screening workflow — e.g. a UFC-only watchlist filtered on
+tennis-style activity/win-rate thresholds — if you want to narrow down to
+one sport instead of all of them.)
 
 ### Option B: Manual candidates
 
 If you already have addresses in mind (e.g. from PolyCopy, Polymarket
-profiles, or your own research), screen them the same way:
+profiles, or your own research), screen them with the same underlying
+logic (`wallet_screening.py`: ≥8 buys in the last 10 weeks, ≥50% win rate
+on resolved positions):
 
 ```bash
 python manual_wallet_check.py candidates.txt
 ```
 
-Both options use the same underlying screening (`wallet_screening.py`):
-≥8 tennis buys in the last 10 weeks, ≥50% win rate on resolved positions.
-Neither one ever fabricates an address — they only evaluate real wallets,
-either pulled from Polymarket's leaderboard or supplied by you.
+Neither script ever fabricates an address — they only evaluate real
+wallets, either pulled from Polymarket's leaderboard or supplied by you.
 
 All wallets count equally — there are no tiers/weights in this version. The
-bot fires the instant 5 distinct wallets from this list buy the same
-outcome of the same tennis match within the 15-minute window
-(`config.TIME_WINDOW_MINUTES`, `config.CONSENSUS_WALLET_THRESHOLD`).
+bot fires the instant `CONSENSUS_WALLET_THRESHOLD` distinct wallets from
+this list buy the same outcome of the same market within the 15-minute
+window, then places a second same-size trade if `DOUBLE_UP_THRESHOLD` is
+also reached in that window (see "Two-tier trading rule" above).
 
 ## Going faster than polling
 
@@ -121,15 +136,20 @@ scripts above (≥8 tennis buys/10 weeks, ≥50% win rate) — adjust its
 |---|---|
 | `config.py` | Wallets, tiers, all strategy parameters |
 | `wallet_tracker.py` | Polls Polymarket's public Data API for whale trades |
-| `sport_filter.py` | Determines which slugs are active tennis markets via the Gamma tag system |
-| `consensus_engine.py` | Fires instantly once 5 distinct wallets agree on the same outcome |
-| `wallet_screening.py` | Shared screening logic (real tennis activity + win rate) |
-| `auto_discover_wallets.py` | Finds candidates from Polymarket's own leaderboard, screens them automatically |
+| `sport_filter.py` | Determines which slugs are active sports markets via the Gamma tag system |
+| `consensus_engine.py` | Two-tier consensus: fires a base trade at `CONSENSUS_WALLET_THRESHOLD` agreeing wallets, a double-up at `DOUBLE_UP_THRESHOLD` |
+| `wallet_screening.py` | Shared screening logic (real activity + win rate), used by the single-sport discovery workflow |
+| `discover_top50_alltime.py` | Primary discovery: top all-time PnL wallets from Polymarket's SPORTS leaderboard |
+| `auto_discover_wallets.py` | Alternate discovery: leaderboard candidates screened for a specific sport's activity/win-rate |
 | `manual_wallet_check.py` | Screens addresses you supply yourself in a text file |
+| `check_wallet_activity.py` | Quick manual lookup of one wallet's recent activity |
+| `backtest.py` | Replays the consensus logic over real historical trades to estimate win rate/ROI |
+| `sweep_thresholds.py` | Backtests a range of consensus/double-up thresholds to compare |
+| `debug_slug_match.py` | Debug helper for tag/slug resolution issues in `sport_filter.py` |
 | `risk_manager.py` | Daily cap, cooldowns, max positions, loss-streak pause |
 | `trade_executor.py` | Paper simulation or live order submission |
 | `market_resolver.py` | Resolves market slug/outcome -> CLOB token_id, checks market is still active |
-| `resolution_watcher.py` | Tracks market resolutions, feeds P&L back |
+| `resolution_watcher.py` | Tracks market resolutions, feeds real P&L back to the risk manager |
 | `main.py` | Wires everything together |
 
 ## State & logs
@@ -138,3 +158,4 @@ scripts above (≥8 tennis buys/10 weeks, ≥50% win rate) — adjust its
   Persisted across restarts. Delete it to reset the bot to a fresh state.
 - `logs/bot.log` — full run log.
 - `logs/paper_trades.jsonl` — one JSON line per simulated trade.
+- `logs/live_trades.jsonl` — one JSON line per live order actually submitted.

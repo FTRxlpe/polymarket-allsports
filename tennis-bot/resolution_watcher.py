@@ -29,14 +29,18 @@ CHECK_INTERVAL_SECONDS = 60
 
 def compute_pnl(position: dict, winning_outcome: str) -> tuple:
     """Returns (won, pnl) for a resolved binary market. Winning shares pay
-    out $1 each; losing shares pay out $0. `position` holds the total shares
-    and USD actually staked across base + any double_up (see
-    risk_manager.OpenPosition)."""
+    out $1 each; losing shares pay out $0. `position` holds the entry price
+    and USD size actually staked (see risk_manager.OpenPosition)."""
     won = str(position["outcome"]).lower() == str(winning_outcome).lower()
     bet_size = position["bet_size_usd"]
-    shares = position["shares"]
+    price = position["price"]
 
-    pnl = (shares - bet_size) if won else -bet_size
+    if won:
+        shares = bet_size / price if price else 0.0
+        pnl = shares - bet_size  # payout ($1/share) minus the stake
+    else:
+        pnl = -bet_size
+
     return won, pnl
 
 

@@ -1,7 +1,7 @@
 """
 Shared wallet-screening logic: checks a candidate address against simple
 whale criteria for the configured sport.
-  - >= MIN_BUYS buys in the last LOOKBACK_WEEKS weeks
+  - >= MIN_BUYS and <= MAX_BUYS buys in the last LOOKBACK_WEEKS weeks
   - >= MIN_WIN_RATE win rate on resolved positions
 
 Used by:
@@ -26,6 +26,15 @@ logger = logging.getLogger("wallet_screening")
 
 LOOKBACK_WEEKS = 10
 MIN_BUYS = 8
+# Upper bound on activity: a real "whale" making conviction bets doesn't
+# place thousands of trades a month — that volume is a market-maker/arb bot,
+# not a signal worth copying. Confirmed empirically via backtest.py on the
+# allsports variant of this same bot: a wallet averaging ~135 buys/day
+# showed up in 14/14 triggered consensus signals (result: 30.8% win rate,
+# -43% ROI) — it wasn't 3 whales agreeing, it was 2 whales plus one
+# hyperactive wallet that touches nearly every market. MAX_BUYS filters
+# that class of wallet out of the watch list.
+MAX_BUYS = 2500
 MIN_WIN_RATE = 0.50
 
 _sport_filter = SportFilter(tag_slug=config.SPORT_TAG_SLUG)
@@ -54,14 +63,17 @@ def fetch_trades(address: str, limit: int = 500, max_retries: int = 4) -> list:
     return []
 
 
-def screen_wallet(address: str, min_buys: int = None, min_win_rate: float = None) -> dict:
-    """min_buys / min_win_rate override the module defaults (MIN_BUYS /
-    MIN_WIN_RATE) when provided — lets callers loosen or tighten the bar
-    without editing this file."""
+def screen_wallet(address: str, min_buys: int = None, min_win_rate: float = None,
+                   max_buys: int = None) -> dict:
+    """min_buys / min_win_rate / max_buys override the module defaults
+    (MIN_BUYS / MIN_WIN_RATE / MAX_BUYS) when provided — lets callers
+    loosen or tighten the bar without editing this file."""
     if min_buys is None:
         min_buys = MIN_BUYS
     if min_win_rate is None:
         min_win_rate = MIN_WIN_RATE
+    if max_buys is None:
+        max_buys = MAX_BUYS
 
     address = address.lower()
     cutoff = (datetime.now(timezone.utc) - timedelta(weeks=LOOKBACK_WEEKS)).timestamp()
@@ -74,31 +86,38 @@ def screen_wallet(address: str, min_buys: int = None, min_win_rate: float = None
         and float(t.get("timestamp", 0)) >= cutoff
     ]
 
-    from market_resolver import MarketResolver, get_winning_outcome
-    resolver = MarketResolver()
+    meets_activity_bar = min_buys <= len(sport_buys) <= max_buys
 
-    wins, losses = 0, 0
-    by_market = defaultdict(list)
-    for t in sport_buys:
-        by_market[t.get("slug")].append(t)
+    # Win-rate computation resolves every unique market the wallet touched
+    # — for a hyperactive wallet (hundreds/thousands of unique markets)
+    # that's a lot of work for a result that's discarded anyway once
+    # meets_activity_bar is already False. Skip it entirely in that case.
+    wins = losses = total_resolved = 0
+    win_rate = None
+    if meets_activity_bar:
+        from market_resolver import MarketResolver, get_winning_outcome
+        resolver = MarketResolver()
 
-    for slug, market_trades in by_market.items():
-        market = resolver._get_market(slug)
-        if not market or not market.get("closed"):
-            continue
-        winning_outcome = get_winning_outcome(market)
-        if not winning_outcome:
-            continue
-        for t in market_trades:
-            if str(t.get("outcome", "")).lower() == str(winning_outcome).lower():
-                wins += 1
-            else:
-                losses += 1
+        by_market = defaultdict(list)
+        for t in sport_buys:
+            by_market[t.get("slug")].append(t)
 
-    total_resolved = wins + losses
-    win_rate = (wins / total_resolved) if total_resolved else None
+        for slug, market_trades in by_market.items():
+            market = resolver._get_market(slug)
+            if not market or not market.get("closed"):
+                continue
+            winning_outcome = get_winning_outcome(market)
+            if not winning_outcome:
+                continue
+            for t in market_trades:
+                if str(t.get("outcome", "")).lower() == str(winning_outcome).lower():
+                    wins += 1
+                else:
+                    losses += 1
 
-    meets_activity_bar = len(sport_buys) >= min_buys
+        total_resolved = wins + losses
+        win_rate = (wins / total_resolved) if total_resolved else None
+
     meets_winrate_bar = (win_rate is not None and win_rate >= min_win_rate)
 
     return {
@@ -112,6 +131,8 @@ def screen_wallet(address: str, min_buys: int = None, min_win_rate: float = None
         "meets_winrate_bar": meets_winrate_bar,
         # A wallet with no resolvable win-rate data cannot be verified to
         # meet the win-rate bar, so it no longer qualifies by default — only
-        # a genuinely computed win_rate >= min_win_rate passes.
+        # a genuinely computed win_rate >= min_win_rate passes. Likewise a
+        # wallet trading more than max_buys times is presumed to be a bot/
+        # market-maker, not a conviction whale worth copying (see MAX_BUYS).
         "qualifies": meets_activity_bar and meets_winrate_bar,
     }

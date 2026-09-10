@@ -97,26 +97,33 @@ DISABLE_SANITY_CHECK = False
 #
 # If that file doesn't exist yet, falls back to the 19 wallets found in the
 # earlier UFC-specific screening (still valid, just a smaller starting set).
+#
+# The "buys/10w" comments below are stale — they were counted against a
+# UFC-only filter, not the current all-sports one, so they badly
+# undercount real activity. Confirmed via backtest.py: 3 of these wallets
+# (whale-2c3350, rabbitfoot1, no1dodgersfan) actually trade ~60-135
+# times/day across all sports combined — market-maker/arb bot territory,
+# not conviction whales — and whale-2c3350 alone showed up in 14/14
+# triggered consensus signals in a 30-day backtest (30.8% win rate, -43%
+# ROI). Removed here; wallet_screening.py's new MAX_BUYS now filters this
+# class of wallet out automatically for anyone re-run through discovery.
 _FALLBACK_WATCHED_WALLETS: Dict[str, str] = {
-    "Talvez10": "0xa71093cafc0c099b4ccab24c3cb8018d817923c4",             # 91 buys/10w, PnL +110,109$
-    "surfandturf": "0x9f2fe025f84839ca81dd8e0338892605702d2ca8",          # 77 buys/10w, PnL +916,360$
-    "matanovik": "0x39d3c773be30fcc73161fc6768f46d563a779ef0",           # 50 buys/10w, PnL +316,962$
-    "jtwyslljy": "0x9cb990f1862568a63d8601efeebe0304225c32f2",           # 15 buys/10w, PnL +2,483,103$
-    "Nooserac": "0xf68a281980f8c13828e84e147e3822381d6e5b1b",            # 14 buys/10w, PnL +77,809$
-    "no1dodgersfan": "0xb8ef617fd5d960e61e56c50d2971697300b32864",       # 12 buys/10w, PnL +3,353$
-    "whale-2c3350": "0x2c335066fe58fe9237c3d3dc7b275c2a034a0563",        # 11 buys/10w, PnL +4,515,806$
-    "Jsram": "0x83720820a8aa6c3f20ad71850e7a1a17d16c5223",               # 6 buys/10w, PnL +62,037$
-    "Netrol": "0x23c8a4c266d10ba5846837eac391fea89ed6f293",              # 6 buys/10w, PnL +132,666$
-    "AV23IUa": "0xdb859a551fcf56e49416160911476bea7307152f",             # 6 buys/10w, PnL +123,355$
-    "hansama231": "0x381b9294c1b95b61d018ff56312fbcc4897c4d74",          # 4 buys/10w, PnL +116,860$
-    "BreakTheBank": "0xf0318c32136c2db7fec88b84869aee6a1106c80c",        # 2 buys/10w, PnL +223,383$
-    "jarosbill": "0x927cf2bb94d15707993f954552e56c74eb6d6633",           # 2 buys/10w, PnL +23,073$
-    "monkeymashingkeyboard": "0x684baa57c338c2549aec0aa3f034f695d72a8409",  # 2 buys/10w, PnL +90,360$
-    "rabbitfoot1": "0x10a6fadcbacd66330862206f6199b197e3ad4d8b",         # 1 buy/10w, PnL +86,185$
-    "sulumos": "0x9db82de5a71ae539bc82f4d9ac3a007c7d742eff",             # 1 buy/10w, PnL +48,609$
-    "CoffeeDespiser": "0x629c2844d5c0e36774a67fe10dcd43ca31a76c01",      # 1 buy/10w, PnL +27,447$
-    "whale-424779": "0x42477970683d4d0a52ec7082fee5d760cc5591c4",        # 1 buy/10w, PnL +111,792$
-    "Allezpapa": "0xe549581668a5751c1972d3ad2d1991d900bd2d54",           # 1 buy/10w, PnL +4,280,723$
+    "Talvez10": "0xa71093cafc0c099b4ccab24c3cb8018d817923c4",             # PnL +110,109$
+    "surfandturf": "0x9f2fe025f84839ca81dd8e0338892605702d2ca8",          # PnL +916,360$
+    "matanovik": "0x39d3c773be30fcc73161fc6768f46d563a779ef0",           # PnL +316,962$
+    "jtwyslljy": "0x9cb990f1862568a63d8601efeebe0304225c32f2",           # PnL +2,483,103$
+    "Nooserac": "0xf68a281980f8c13828e84e147e3822381d6e5b1b",            # PnL +77,809$
+    "Jsram": "0x83720820a8aa6c3f20ad71850e7a1a17d16c5223",               # PnL +62,037$
+    "Netrol": "0x23c8a4c266d10ba5846837eac391fea89ed6f293",              # PnL +132,666$
+    "AV23IUa": "0xdb859a551fcf56e49416160911476bea7307152f",             # PnL +123,355$
+    "hansama231": "0x381b9294c1b95b61d018ff56312fbcc4897c4d74",          # PnL +116,860$
+    "BreakTheBank": "0xf0318c32136c2db7fec88b84869aee6a1106c80c",        # PnL +223,383$
+    "jarosbill": "0x927cf2bb94d15707993f954552e56c74eb6d6633",           # PnL +23,073$
+    "monkeymashingkeyboard": "0x684baa57c338c2549aec0aa3f034f695d72a8409",  # PnL +90,360$
+    "sulumos": "0x9db82de5a71ae539bc82f4d9ac3a007c7d742eff",             # PnL +48,609$
+    "CoffeeDespiser": "0x629c2844d5c0e36774a67fe10dcd43ca31a76c01",      # PnL +27,447$
+    "whale-424779": "0x42477970683d4d0a52ec7082fee5d760cc5591c4",        # PnL +111,792$
+    "Allezpapa": "0xe549581668a5751c1972d3ad2d1991d900bd2d54",           # PnL +4,280,723$
 }
 
 WATCHED_WALLETS: Dict[str, str] = _FALLBACK_WATCHED_WALLETS

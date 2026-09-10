@@ -10,7 +10,7 @@ import sys
 import time
 
 import config
-from wallet_screening import screen_wallet, MIN_BUYS, MIN_WIN_RATE, LOOKBACK_WEEKS
+from wallet_screening import screen_wallet, MIN_BUYS, MAX_BUYS, MIN_WIN_RATE, LOOKBACK_WEEKS
 
 
 def main():
@@ -22,7 +22,8 @@ def main():
         candidates = [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
     print(f"Screening {len(candidates)} candidate wallets against:")
-    print(f"  - >= {MIN_BUYS} {config.SPORT_TAG_SLUG} buys in the last {LOOKBACK_WEEKS} weeks")
+    print(f"  - {MIN_BUYS}-{MAX_BUYS} {config.SPORT_TAG_SLUG} buys in the last {LOOKBACK_WEEKS} weeks "
+          f"(above {MAX_BUYS} is presumed bot/market-maker activity, not a conviction whale)")
     print(f"  - >= {MIN_WIN_RATE:.0%} win rate on resolved positions\n")
 
     qualified = []

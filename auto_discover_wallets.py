@@ -28,7 +28,7 @@ from typing import Dict, List
 import requests
 
 import config
-from wallet_screening import screen_wallet, MIN_BUYS, MIN_WIN_RATE, LOOKBACK_WEEKS
+from wallet_screening import screen_wallet, MIN_BUYS, MIN_WIN_RATE, MAX_BUYS, LOOKBACK_WEEKS
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("auto_discover_wallets")
@@ -90,6 +90,10 @@ def main():
                          help=f"Minimum {config.SPORT_TAG_SLUG} buys in the last {LOOKBACK_WEEKS} weeks to qualify (default {MIN_BUYS})")
     parser.add_argument("--min-winrate", type=float, default=MIN_WIN_RATE,
                          help=f"Minimum win rate (0-1) on resolved {config.SPORT_TAG_SLUG} positions to qualify (default {MIN_WIN_RATE})")
+    parser.add_argument("--max-buys", type=int, default=MAX_BUYS,
+                         help=f"Maximum {config.SPORT_TAG_SLUG} buys in the last {LOOKBACK_WEEKS} weeks — "
+                              f"above this a wallet is presumed to be a bot/market-maker rather than a "
+                              f"conviction whale, and is excluded even if its win rate is good (default {MAX_BUYS})")
     parser.add_argument("--fallback-ranked", action="store_true",
                          help="If nothing qualifies, still output the most sport-active "
                               "candidates found, ranked by activity, instead of nothing")
@@ -104,13 +108,15 @@ def main():
     print(f"{len(candidates)} unique candidate wallets found in the sports leaderboard.\n")
 
     print(f"Screening each one for real {config.SPORT_TAG_SLUG} activity:")
-    print(f"  - >= {args.min_buys} {config.SPORT_TAG_SLUG} buys in the last {LOOKBACK_WEEKS} weeks")
+    print(f"  - {args.min_buys}-{args.max_buys} {config.SPORT_TAG_SLUG} buys in the last {LOOKBACK_WEEKS} weeks "
+          f"(above {args.max_buys} is presumed bot/market-maker activity, not a conviction whale)")
     print(f"  - >= {args.min_winrate:.0%} win rate on resolved {config.SPORT_TAG_SLUG} positions\n")
 
     all_results = []
     qualified = []
     for i, (addr, lb_entry) in enumerate(candidates.items(), 1):
-        result = screen_wallet(addr, min_buys=args.min_buys, min_win_rate=args.min_winrate)
+        result = screen_wallet(addr, min_buys=args.min_buys, min_win_rate=args.min_winrate,
+                                max_buys=args.max_buys)
         result["leaderboard_username"] = lb_entry.get("userName", "")
         result["leaderboard_pnl"] = lb_entry.get("pnl")
         result["leaderboard_vol"] = lb_entry.get("vol")

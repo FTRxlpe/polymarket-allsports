@@ -73,9 +73,17 @@ SPORT_TAG_SLUGS: List[str] = [
 
 # Which category to pull the wallet leaderboard from (data-api.polymarket.com
 # /v1/leaderboard?category=X). Valid values include: OVERALL, POLITICS,
-# SPORTS, CRYPTO, CULTURE, ECONOMICS, TECH, FINANCE. Keep this aligned with
-# SPORT_TAG_SLUG above — e.g. both set to the economics/macro domain.
-LEADERBOARD_CATEGORY = "SPORTS"
+# SPORTS, CRYPTO, CULTURE, ECONOMICS, TECH, FINANCE.
+#
+# Set to OVERALL to test across every domain Polymarket has, not just
+# sports: backtest.py itself never filters by sport (no sport_filter
+# import — it just watches whatever trades the candidate wallets make, in
+# any category), so the ONLY sports-specific thing was ever the source
+# leaderboard used to find candidates in the first place. Switching this
+# to OVERALL sources candidates by best PnL platform-wide (crypto, politics,
+# culture, sports, tech, finance, everything) and the backtest's consensus
+# matching naturally covers all of it.
+LEADERBOARD_CATEGORY = "OVERALL"
 
 # Some domains (sports, esports) name every market slug with a shared prefix
 # ("ufc-...", "nba-..."), which sport_filter.py uses as a sanity check

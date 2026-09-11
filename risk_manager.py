@@ -30,6 +30,7 @@ class OpenPosition:
     outcome: str
     shares: float           # total outcome shares held (accumulates on double_up)
     bet_size_usd: float     # total USD staked (base + any double_up)
+    contributing_wallets: List[str] = field(default_factory=list)  # union across base + double_up
     opened_at: float = field(default_factory=time.time)
 
 
@@ -139,20 +140,29 @@ class RiskManager:
             # Double-up: fold into the existing position on this market
             # instead of opening a second one, so PnL reconciles against the
             # full cumulative stake (base + double_up) once it resolves.
+            # contributing_wallets accumulates the union of both signals'
+            # wallets, so resolution_watcher.py credits/blames everyone who
+            # actually contributed to the final result, not just whichever
+            # tier fired last.
             for pos in self.state.open_positions:
                 if pos["market_slug"] == signal.market_slug:
                     pos["shares"] += shares
                     pos["bet_size_usd"] += bet_size
+                    pos["contributing_wallets"] = sorted(
+                        set(pos.get("contributing_wallets", [])) | set(signal.contributing_wallets)
+                    )
                     break
             else:
                 self.state.open_positions.append(asdict(OpenPosition(
                     market_slug=signal.market_slug, outcome=signal.outcome,
                     shares=shares, bet_size_usd=bet_size,
+                    contributing_wallets=list(signal.contributing_wallets),
                 )))
         else:
             self.state.open_positions.append(asdict(OpenPosition(
                 market_slug=signal.market_slug, outcome=signal.outcome,
                 shares=shares, bet_size_usd=bet_size,
+                contributing_wallets=list(signal.contributing_wallets),
             )))
             cooldown_key = f"{signal.market_slug}|{signal.outcome}"
             self.state.cooldowns[cooldown_key] = time.time() + config.COOLDOWN_MINUTES * 60

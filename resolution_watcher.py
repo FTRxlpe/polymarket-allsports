@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import config
+import wallet_reputation
 from risk_manager import RiskManager
 from market_resolver import MarketResolver, get_winning_outcome
 
@@ -63,6 +64,14 @@ def run():
                     f"(held: {position['outcome']})"
                 )
                 risk.record_result(slug, won=won, pnl=pnl)
+
+                # Feed the outcome back to every wallet that contributed to
+                # this position (base + any double_up) — this is the bot's
+                # only source of real win/loss data, and it's what lets
+                # wallet_reputation.py weight future votes and auto-ban a
+                # wallet that keeps being wrong (see that module's docstring).
+                for wallet in position.get("contributing_wallets", []):
+                    wallet_reputation.record_outcome(wallet, won=won)
 
             except Exception:
                 logger.exception(f"Error checking resolution for {slug}")

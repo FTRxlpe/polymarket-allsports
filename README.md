@@ -149,13 +149,54 @@ scripts above (≥8 tennis buys/10 weeks, ≥50% win rate) — adjust its
 | `risk_manager.py` | Daily cap, cooldowns, max positions, loss-streak pause |
 | `trade_executor.py` | Paper simulation or live order submission |
 | `market_resolver.py` | Resolves market slug/outcome -> CLOB token_id, checks market is still active |
-| `resolution_watcher.py` | Tracks market resolutions, feeds real P&L back to the risk manager |
+| `resolution_watcher.py` | Tracks market resolutions, feeds real P&L back to the risk manager AND real win/loss back to `wallet_reputation.py` |
+| `wallet_reputation.py` | The bot's learning loop: weights each wallet's consensus vote by its own resolved track record, and auto-bans a wallet once it's proven itself unreliable — see below |
 | `main.py` | Wires everything together |
+
+## Learning from results: `wallet_reputation.py`
+
+Every wallet on the watch list starts out treated identically — one vote is
+one vote, forever, regardless of how its copied trades actually turn out.
+`wallet_reputation.py` changes that, closing the loop between
+`resolution_watcher.py` (which already knows whether each position won or
+lost) and the two modules that decide what to act on next:
+
+- **Weighted consensus** (`consensus_engine.py`, gated by
+  `config.REPUTATION_WEIGHTING_ENABLED`) — instead of `CONSENSUS_WALLET_THRESHOLD`
+  counting distinct wallets flatly, each wallet's vote counts as
+  `2 × its Bayesian-shrunk win rate` (a proven ~75% wallet counts like 1.5
+  votes, a proven ~25% wallet like 0.5). A wallet with no resolved history
+  yet counts as a neutral 1.0, so this only changes behavior once the bot
+  has actually learned something about a wallet. Shrinkage means a couple
+  of early results barely move the needle — it takes real sample size to
+  earn extra weight or lose it.
+- **Auto-ban** (`wallet_tracker.py`, always on) — once a wallet has at
+  least 12 resolved copied trades AND a ≤35% observed win rate over them,
+  it's dropped from active tracking entirely (its trades stop being
+  fetched, so it can never re-enter a signal through any path). This is
+  the direct answer to "a wallet that keeps being wrong should stop
+  influencing the bot" — no manual list-editing required.
+
+State lives in `state/wallet_reputation.json`, keyed by wallet nickname
+(the same identifier used everywhere else in the pipeline), and round-trips
+through that file so `main.py` and `resolution_watcher.py` — which the
+README already has you running as two separate processes — stay in sync
+without any direct connection between them, the same pattern
+`risk_state.json` already uses.
+
+To disable weighting and go back to flat one-wallet-one-vote counting
+(auto-ban still applies regardless — see `wallet_reputation.py` for why),
+set `REPUTATION_WEIGHTING_ENABLED = False` in `config.py`. To tune how
+aggressive the ban is, edit `MIN_RESOLVED_FOR_BAN` / `BAN_WIN_RATE_THRESHOLD`
+at the top of `wallet_reputation.py` directly.
 
 ## State & logs
 
 - `state/risk_state.json` — bankroll, daily spend, cooldowns, loss streak.
   Persisted across restarts. Delete it to reset the bot to a fresh state.
+- `state/wallet_reputation.json` — each wallet's resolved win/loss record
+  and derived consensus weight/ban status. Delete it to reset every
+  wallet back to a neutral, unbanned starting point.
 - `logs/bot.log` — full run log.
 - `logs/paper_trades.jsonl` — one JSON line per simulated trade.
 - `logs/live_trades.jsonl` — one JSON line per live order actually submitted.

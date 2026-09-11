@@ -161,6 +161,20 @@ DOUBLE_UP_THRESHOLD = 6          # if 6+ agree, place a second same-size trade t
 TIME_WINDOW_MINUTES = 15
 
 # --------------------------------------------------------------------------
+# WALLET REPUTATION (the bot's learning loop — see wallet_reputation.py)
+# --------------------------------------------------------------------------
+# Auto-banning a wallet after enough proven-bad copied trades is ALWAYS on
+# (wallet_tracker.py stops fetching its trades entirely — no toggle for
+# that, since there's no upside to keeping a wallet the bot has already
+# disproven). This flag only controls whether each wallet's vote toward
+# CONSENSUS_WALLET_THRESHOLD / DOUBLE_UP_THRESHOLD is weighted by its
+# resolved track record (a proven-good wallet counts for more than one
+# vote, a mediocre one for less) instead of a flat 1 per wallet. Wallets
+# with no resolved history yet count as a neutral 1.0 either way, so this
+# only changes behavior once the bot has actually learned something.
+REPUTATION_WEIGHTING_ENABLED = True
+
+# --------------------------------------------------------------------------
 # CORE FILTERS (same protective role as before)
 # --------------------------------------------------------------------------
 COOLDOWN_MINUTES = 60           # lock-out per market+outcome after a bet

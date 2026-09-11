@@ -17,6 +17,15 @@ calls it every POLL_INTERVAL_SECONDS (default 2s). That's as close to
 instant as a polling architecture gets — true sub-second reaction needs a
 WebSocket trade feed instead of polling the Data API, see README "Going
 faster than polling".
+
+Note on reputation weighting: threshold-crossing is decided on
+weighted_count, not the raw wallet_count, when config.REPUTATION_WEIGHTING_ENABLED
+is True (see wallet_reputation.py) — a wallet with a proven track record on
+past copied trades counts for more (or less) than one flat vote. Wallets
+with no resolved history yet default to a neutral weight of 1.0, so this
+only changes behavior once the bot has actually learned something.
+Banned wallets (see wallet_reputation.is_banned) never make it this far —
+wallet_tracker.py stops fetching their trades entirely.
 """
 import time
 import logging
@@ -24,6 +33,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Set
 
 import config
+import wallet_reputation
 from wallet_tracker import WhaleTrade
 
 logger = logging.getLogger("consensus_engine")
@@ -34,6 +44,7 @@ class ConsensusSignal:
     market_slug: str
     outcome: str
     wallet_count: int
+    weighted_count: float
     contributing_wallets: List[str]
     avg_price: float
     first_seen: float
@@ -60,13 +71,15 @@ class ConsensusEngine:
                 self._fired_base.discard(key)
                 self._fired_double.discard(key)
 
-    def _make_signal(self, key: tuple, wallets: Dict[str, WhaleTrade], signal_type: str) -> ConsensusSignal:
+    def _make_signal(self, key: tuple, wallets: Dict[str, WhaleTrade], signal_type: str,
+                      weighted_count: float) -> ConsensusSignal:
         trade_list = list(wallets.values())
         avg_price = sum(t.price for t in trade_list) / len(trade_list)
         return ConsensusSignal(
             market_slug=key[0],
             outcome=key[1],
             wallet_count=len(wallets),
+            weighted_count=weighted_count,
             contributing_wallets=list(wallets.keys()),
             avg_price=avg_price,
             first_seen=min(t.timestamp for t in trade_list),
@@ -87,26 +100,35 @@ class ConsensusEngine:
         for key, wallets in self._pending.items():
             count = len(wallets)
 
-            if key not in self._fired_base and count >= config.CONSENSUS_WALLET_THRESHOLD:
-                signal = self._make_signal(key, wallets, "base")
+            if config.REPUTATION_WEIGHTING_ENABLED:
+                weights, _ = wallet_reputation.get_weights_and_bans(wallets.keys())
+                weighted_count = sum(weights.values())
+            else:
+                weighted_count = float(count)  # weighting off: behaves exactly like the old flat count
+            effective_count = weighted_count
+
+            if key not in self._fired_base and effective_count >= config.CONSENSUS_WALLET_THRESHOLD:
+                signal = self._make_signal(key, wallets, "base", weighted_count)
                 signals.append(signal)
                 self._fired_base.add(key)
                 logger.info(
                     f"[CONSENSUS REACHED] {key[0]} / {key[1]} — "
-                    f"{count} wallets agreed (base trade): {list(wallets.keys())}"
+                    f"{count} wallets agreed (weighted {weighted_count:.2f}, base trade): "
+                    f"{list(wallets.keys())}"
                 )
 
             # Double-up can only fire AFTER the base signal has fired for
             # this market+outcome (it's an addition to an existing trade,
             # not a substitute for it).
             if (key in self._fired_base and key not in self._fired_double
-                    and count >= config.DOUBLE_UP_THRESHOLD):
-                signal = self._make_signal(key, wallets, "double_up")
+                    and effective_count >= config.DOUBLE_UP_THRESHOLD):
+                signal = self._make_signal(key, wallets, "double_up", weighted_count)
                 signals.append(signal)
                 self._fired_double.add(key)
                 logger.info(
                     f"[DOUBLE-UP REACHED] {key[0]} / {key[1]} — "
-                    f"{count} wallets agreed (doubling stake): {list(wallets.keys())}"
+                    f"{count} wallets agreed (weighted {weighted_count:.2f}, doubling stake): "
+                    f"{list(wallets.keys())}"
                 )
 
         return signals

@@ -11,6 +11,7 @@ from typing import List, Optional
 import requests
 
 import config
+import wallet_reputation
 from sport_filter import MultiSportFilter
 
 logger = logging.getLogger("wallet_tracker")
@@ -32,6 +33,7 @@ class WhaleTrade:
 class WalletTracker:
     def __init__(self):
         self._seen_tx_hashes = set()
+        self._logged_bans: set = set()  # avoid re-logging the same ban every poll cycle
         self.session = requests.Session()
         self.sport_filter = MultiSportFilter(config.SPORT_TAG_SLUGS)
 
@@ -49,7 +51,19 @@ class WalletTracker:
     def poll_once(self) -> List[WhaleTrade]:
         new_trades: List[WhaleTrade] = []
 
+        # Wallets the reputation agent has auto-banned (see
+        # wallet_reputation.py) for a proven poor track record on trades
+        # this bot actually copied are skipped before even fetching their
+        # trades — cheaper than filtering downstream, and means a banned
+        # wallet's signals can never re-enter the pipeline through any path.
+        banned = wallet_reputation.get_banned(config.WATCHED_WALLETS.keys())
+        if banned and banned - self._logged_bans:
+            logger.warning(f"[REPUTATION] No longer tracking banned wallets: {sorted(banned - self._logged_bans)}")
+            self._logged_bans |= banned
+
         for nickname, address in config.WATCHED_WALLETS.items():
+            if nickname in banned:
+                continue
             address = address.lower()
 
             raw_trades = self.fetch_recent_trades(address)

@@ -269,4 +269,19 @@ STARTING_BANKROLL = float(os.getenv("STARTING_BANKROLL", "100"))
 # Short poll interval for near-instant reaction. True sub-second reaction
 # would require a WebSocket feed instead of polling — see README "Going
 # faster than polling" for that upgrade path.
+#
+# This is the sleep AFTER a full pass over every watched wallet, not the
+# gap between individual wallets — see WALLET_POLL_DELAY_SECONDS below for
+# that. With 50 wallets, a full pass takes 50 * WALLET_POLL_DELAY_SECONDS
+# seconds minimum regardless of this value.
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "2"))
+
+# Delay between each wallet's trades request within one poll pass.
+# wallet_tracker.py used to fire all 50 requests back-to-back as fast as
+# Python could loop, which data-api.polymarket.com rate-limits into an
+# unbroken wall of 429s (confirmed live: every single request failed,
+# repeatedly, once WATCHED_WALLETS grew to 50) — the bot never actually
+# retrieved any trades. Spacing requests out at this interval keeps sustained
+# throughput low enough to mostly avoid 429s in practice; fetch_recent_trades
+# also now retries with backoff on the ones that still happen.
+WALLET_POLL_DELAY_SECONDS = float(os.getenv("WALLET_POLL_DELAY_SECONDS", "0.5"))

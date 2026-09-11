@@ -38,16 +38,28 @@ class WalletTracker:
         self.session = requests.Session()
         self.sport_filter = MultiSportFilter(config.SPORT_TAG_SLUGS)
 
-    def fetch_recent_trades(self, address: str, limit: int = 20) -> List[dict]:
+    def fetch_recent_trades(self, address: str, limit: int = 20, max_retries: int = 4) -> List[dict]:
         url = f"{config.POLYMARKET_DATA_API}/trades"
         params = {"user": address, "limit": limit}
-        try:
-            resp = self.session.get(url, params=params, timeout=10)
-            resp.raise_for_status()
-            return resp.json()
-        except requests.RequestException as e:
-            logger.warning(f"Failed to fetch trades for {address}: {e}")
-            return []
+        delay = 1.5
+        for attempt in range(max_retries):
+            try:
+                resp = self.session.get(url, params=params, timeout=10)
+                if resp.status_code == 429:
+                    logger.warning(
+                        f"Rate limited (429) for {address}, retrying in {delay:.1f}s "
+                        f"(attempt {attempt + 1}/{max_retries})"
+                    )
+                    time.sleep(delay)
+                    delay *= 2  # exponential backoff
+                    continue
+                resp.raise_for_status()
+                return resp.json()
+            except requests.RequestException as e:
+                logger.warning(f"Failed to fetch trades for {address}: {e}")
+                return []
+        logger.warning(f"Giving up on {address} after {max_retries} retries (still rate limited)")
+        return []
 
     def poll_once(self) -> List[WhaleTrade]:
         new_trades: List[WhaleTrade] = []
@@ -68,6 +80,7 @@ class WalletTracker:
             address = address.lower()
 
             raw_trades = self.fetch_recent_trades(address)
+            time.sleep(config.WALLET_POLL_DELAY_SECONDS)  # see config's docstring — avoids a 429 wall
             for t in raw_trades:
                 tx_hash = t.get("transactionHash") or t.get("id")
                 if not tx_hash or tx_hash in self._seen_tx_hashes:
@@ -113,9 +126,11 @@ class WalletTracker:
     def run_forever(self, on_trades_callback):
         scope = f"'{config.SPORT_TAG_SLUG}'-tagged markets only" if config.APPLY_SPORT_FILTER \
             else f"all categories (sport filter off, sourced from {config.LEADERBOARD_CATEGORY} leaderboard)"
+        pass_seconds = len(config.WATCHED_WALLETS) * config.WALLET_POLL_DELAY_SECONDS
         logger.info(
-            f"Tracking {len(config.WATCHED_WALLETS)} wallets, {scope}, "
-            f"polling every {config.POLL_INTERVAL_SECONDS}s"
+            f"Tracking {len(config.WATCHED_WALLETS)} wallets, {scope} — "
+            f"each pass takes ~{pass_seconds:.0f}s ({config.WALLET_POLL_DELAY_SECONDS}s/wallet), "
+            f"then {config.POLL_INTERVAL_SECONDS}s before the next pass"
         )
         if len(config.WATCHED_WALLETS) == 0:
             logger.warning(

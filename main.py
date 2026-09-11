@@ -32,7 +32,8 @@ logger = logging.getLogger("main")
 
 def main():
     mode = "PAPER" if config.PAPER_TRADING else "LIVE"
-    logger.info(f"=== Polymarket {config.SPORT_TAG_SLUG.upper()} Whale-Consensus Bot starting in {mode} mode ===")
+    scope = config.SPORT_TAG_SLUG.upper() if config.APPLY_SPORT_FILTER else config.LEADERBOARD_CATEGORY
+    logger.info(f"=== Polymarket {scope} Whale-Consensus Bot starting in {mode} mode ===")
 
     tracker = WalletTracker()
     consensus = ConsensusEngine()

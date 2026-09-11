@@ -75,15 +75,23 @@ SPORT_TAG_SLUGS: List[str] = [
 # /v1/leaderboard?category=X). Valid values include: OVERALL, POLITICS,
 # SPORTS, CRYPTO, CULTURE, ECONOMICS, TECH, FINANCE.
 #
-# Set to OVERALL to test across every domain Polymarket has, not just
-# sports: backtest.py itself never filters by sport (no sport_filter
-# import — it just watches whatever trades the candidate wallets make, in
-# any category), so the ONLY sports-specific thing was ever the source
-# leaderboard used to find candidates in the first place. Switching this
-# to OVERALL sources candidates by best PnL platform-wide (crypto, politics,
-# culture, sports, tech, finance, everything) and the backtest's consensus
-# matching naturally covers all of it.
-LEADERBOARD_CATEGORY = "OVERALL"
+# Backtested (backtest.py --wallets-file found_wallets_<category>.txt,
+# 60 days, 3/6 threshold, no sport filter) across all 7 leaderboard
+# categories on 2026-09-11. Results (resolved signals / win rate / ROI):
+#   TECH        41/46  63.4%  +21.6%  <- only category with a real, well-
+#                                        sampled edge
+#   CULTURE     39/41  61.5%   -1.3%  roughly break-even
+#   FINANCE      8/10  87.5%   +1.0%  break-even, sample too small to trust
+#   SPORTS      12/12  66.7%  -16.8%  net losing despite decent win rate
+#                                        (wins small, losses eat full stake)
+#   OVERALL     10/11  50.0%  -23.7%
+#   ECONOMICS   15/38  40.0%  -53.7%  dominated by one recurring correlated
+#   POLITICS    25/32  40.0%  -47.1%  macro/geopolitical meta-question, not
+#                                        independent bets
+#   CRYPTO        1/2    n/a     n/a  too few signals to use
+# TECH is the only category with demonstrated edge, hence set here. See
+# found_wallets_tech.txt / tech_bt2.log for the underlying data.
+LEADERBOARD_CATEGORY = "TECH"
 
 # Some domains (sports, esports) name every market slug with a shared prefix
 # ("ufc-...", "nba-..."), which sport_filter.py uses as a sanity check
@@ -94,6 +102,18 @@ LEADERBOARD_CATEGORY = "OVERALL"
 # in its own markets' slugs), so keep the sanity check enabled here — it's
 # what caught the broken "sports" umbrella tag in the first place.
 DISABLE_SANITY_CHECK = False
+
+# Whether wallet_tracker.py filters live trades down to SPORT_TAG_SLUGS
+# before they can ever reach the consensus engine. This bot started as a
+# sports-only bot and that filter is still wired into the live poll loop —
+# but backtest.py NEVER applied it (it just replays every trade a watched
+# wallet makes, any category), which is exactly how the TECH edge above was
+# measured. With LEADERBOARD_CATEGORY = "TECH", leaving this True would
+# silently discard nearly every real signal (AI model releases, earnings,
+# valuations aren't "sports" markets) and the live bot would barely ever
+# fire. Set False to match what was actually backtested; flip back to True
+# only if you switch back to trading a sports category.
+APPLY_SPORT_FILTER = False
 
 # --------------------------------------------------------------------------
 # WATCHED WALLETS
@@ -135,7 +155,15 @@ _FALLBACK_WATCHED_WALLETS: Dict[str, str] = {
 }
 
 WATCHED_WALLETS: Dict[str, str] = _FALLBACK_WATCHED_WALLETS
-_wallets_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "found_wallets_top50.txt")
+_here = os.path.dirname(os.path.abspath(__file__))
+# Prefer the category-specific file discover_top50_alltime.py --category
+# writes (e.g. found_wallets_tech.txt for LEADERBOARD_CATEGORY="TECH") so
+# the watchlist actually matches what was backtested; fall back to the
+# generic found_wallets_top50.txt for older/manual runs that didn't pass
+# --category.
+_wallets_file = os.path.join(_here, f"found_wallets_{LEADERBOARD_CATEGORY.lower()}.txt")
+if not os.path.exists(_wallets_file):
+    _wallets_file = os.path.join(_here, "found_wallets_top50.txt")
 if os.path.exists(_wallets_file):
     try:
         _ns = {}

@@ -78,8 +78,12 @@ class WalletTracker:
                     continue
 
                 slug = t.get("slug") or t.get("market_slug") or ""
-                if not self.sport_filter.is_match(slug):
-                    continue  # not a currently-active tennis market
+                # See config.APPLY_SPORT_FILTER's docstring: backtest.py
+                # never applied this filter, so leaving it on while trading
+                # a non-sports category (e.g. TECH) would silently discard
+                # almost every real signal.
+                if config.APPLY_SPORT_FILTER and not self.sport_filter.is_match(slug):
+                    continue  # not a currently-active market in a watched sport
 
                 size_usd = float(t.get("size", 0)) * float(t.get("price", 0))
                 if size_usd < config.MIN_WHALE_TRADE_USD:
@@ -107,8 +111,10 @@ class WalletTracker:
         return new_trades
 
     def run_forever(self, on_trades_callback):
+        scope = f"'{config.SPORT_TAG_SLUG}'-tagged markets only" if config.APPLY_SPORT_FILTER \
+            else f"all categories (sport filter off, sourced from {config.LEADERBOARD_CATEGORY} leaderboard)"
         logger.info(
-            f"Tracking {len(config.WATCHED_WALLETS)} wallets on '{config.SPORT_TAG_SLUG}', "
+            f"Tracking {len(config.WATCHED_WALLETS)} wallets, {scope}, "
             f"polling every {config.POLL_INTERVAL_SECONDS}s"
         )
         if len(config.WATCHED_WALLETS) == 0:

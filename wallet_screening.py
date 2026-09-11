@@ -132,7 +132,8 @@ def compute_win_rate(buys: list, throttle: float = 0.0) -> tuple:
 
     wins = losses = 0
     for slug, market_trades in by_market.items():
-        market = resolver._get_market(slug)
+        event_slug = next((t.get("eventSlug") for t in market_trades if t.get("eventSlug")), None)
+        market = resolver._get_market(slug, event_slug)
         if throttle:
             time.sleep(throttle)
         if not market or not market.get("closed"):

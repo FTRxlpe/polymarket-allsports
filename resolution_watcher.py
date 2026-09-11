@@ -50,7 +50,7 @@ def run():
         for position in list(risk.state.open_positions):
             slug = position["market_slug"]
             try:
-                market = resolver._get_market(slug)  # uses the reliable /events lookup
+                market = resolver._get_market(slug, position.get("event_slug"))  # uses the reliable /events lookup
                 if not market or not market.get("closed"):
                     continue
 

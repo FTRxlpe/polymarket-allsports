@@ -53,11 +53,11 @@ def main():
             # Live-mode safety checks: confirm the market is still open and
             # resolve the exact token_id before any real order is built.
             # These also run harmlessly in paper mode for consistent testing.
-            if not resolver.is_market_active(signal.market_slug):
+            if not resolver.is_market_active(signal.market_slug, signal.event_slug):
                 logger.info(f"[SKIP] {signal.market_slug}: market no longer active")
                 continue
 
-            token_id = resolver.resolve_token_id(signal.market_slug, signal.outcome)
+            token_id = resolver.resolve_token_id(signal.market_slug, signal.outcome, signal.event_slug)
             if not config.PAPER_TRADING and not token_id:
                 logger.warning(
                     f"[SKIP] {signal.market_slug}/{signal.outcome}: could not "

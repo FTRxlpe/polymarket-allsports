@@ -31,6 +31,7 @@ class OpenPosition:
     shares: float           # total outcome shares held (accumulates on double_up)
     bet_size_usd: float     # total USD staked (base + any double_up)
     contributing_wallets: List[str] = field(default_factory=list)  # union across base + double_up
+    event_slug: Optional[str] = None  # needed for resolution_watcher.py's lookup — see market_resolver.py
     opened_at: float = field(default_factory=time.time)
 
 
@@ -157,12 +158,14 @@ class RiskManager:
                     market_slug=signal.market_slug, outcome=signal.outcome,
                     shares=shares, bet_size_usd=bet_size,
                     contributing_wallets=list(signal.contributing_wallets),
+                    event_slug=signal.event_slug,
                 )))
         else:
             self.state.open_positions.append(asdict(OpenPosition(
                 market_slug=signal.market_slug, outcome=signal.outcome,
                 shares=shares, bet_size_usd=bet_size,
                 contributing_wallets=list(signal.contributing_wallets),
+                event_slug=signal.event_slug,
             )))
             cooldown_key = f"{signal.market_slug}|{signal.outcome}"
             self.state.cooldowns[cooldown_key] = time.time() + config.COOLDOWN_MINUTES * 60

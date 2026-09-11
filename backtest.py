@@ -115,6 +115,7 @@ def simulate_consensus(all_events: list, threshold: int, double_threshold: int, 
                 "slug": key[0], "outcome": key[1], "wallet_count": count,
                 "wallets": sorted(distinct_wallets), "timestamp": ev["timestamp"],
                 "avg_price": sum(e["price"] for e in pending[key]) / len(pending[key]),
+                "event_slug": next((e.get("event_slug") for e in pending[key] if e.get("event_slug")), None),
             })
 
         if key in fired_base and key not in fired_double and count >= double_threshold:
@@ -123,18 +124,19 @@ def simulate_consensus(all_events: list, threshold: int, double_threshold: int, 
                 "slug": key[0], "outcome": key[1], "wallet_count": count,
                 "wallets": sorted(distinct_wallets), "timestamp": ev["timestamp"],
                 "avg_price": sum(e["price"] for e in pending[key]) / len(pending[key]),
+                "event_slug": next((e.get("event_slug") for e in pending[key] if e.get("event_slug")), None),
             })
 
     return base_signals, double_signals
 
 
-def check_outcome(resolver: MarketResolver, slug: str, outcome: str):
+def check_outcome(resolver: MarketResolver, slug: str, outcome: str, event_slug: str = None):
     """Returns 'WON', 'LOST', or None (unresolved/unknown).
 
     There is no "winningOutcome" field in Polymarket's API — a resolved
     market's winner is determined from outcomePrices, which settle to ~1.0
     for the winning outcome and ~0.0 for the rest once resolution completes."""
-    market = resolver._get_market(slug)
+    market = resolver._get_market(slug, event_slug)
     if not market or not market.get("closed"):
         return None
 
@@ -196,6 +198,7 @@ def main():
                 "outcome": t.get("outcome", ""),
                 "price": float(t.get("price", 0)),
                 "timestamp": float(t.get("timestamp", 0)),
+                "event_slug": t.get("eventSlug"),
             })
         time.sleep(args.delay)
 
@@ -232,7 +235,7 @@ def main():
 
     def resolve_and_pnl(s, label):
         """Returns (outcome_str, pnl) for one signal. pnl is None if unresolved."""
-        outcome = check_outcome(resolver, s["slug"], s["outcome"])
+        outcome = check_outcome(resolver, s["slug"], s["outcome"], s.get("event_slug"))
         time.sleep(0.2)
         if outcome == "WON":
             # Bought at avg_price, resolves to $1 per share.

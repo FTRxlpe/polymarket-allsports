@@ -6,7 +6,13 @@ closed/active status, and outcomes/outcomePrices. Use this to debug why a
 specific slug shows up as "unresolved/unknown" in a backtest.
 
 Usage:
-    python debug_market_lookup.py <market-slug>
+    python debug_market_lookup.py <market-slug> [event-slug]
+
+Pass the trade's "eventSlug" field as the second argument when you have it
+(see a raw trade's JSON) -- that's usually what actually finds the market;
+the market's own "slug" alone frequently is NOT the event's slug and
+/events?slug=<market-slug> then returns nothing even though the market
+exists. See market_resolver.py's module docstring.
 """
 import json
 import sys
@@ -15,15 +21,16 @@ from market_resolver import MarketResolver, get_winning_outcome
 
 
 def main():
-    if len(sys.argv) != 2:
-        print("Usage: python debug_market_lookup.py <market-slug>")
+    if len(sys.argv) not in (2, 3):
+        print("Usage: python debug_market_lookup.py <market-slug> [event-slug]")
         sys.exit(1)
 
     slug = sys.argv[1]
+    event_slug = sys.argv[2] if len(sys.argv) == 3 else None
     resolver = MarketResolver()
 
-    print(f"Trying /events?slug={slug} ...")
-    market = resolver._get_market_via_events(slug)
+    print(f"Trying /events?slug={event_slug or slug} (event_slug={event_slug!r}) ...")
+    market = resolver._get_market_via_events(slug, event_slug)
     print(f"  -> {'FOUND' if market else 'not found'}")
 
     if not market:

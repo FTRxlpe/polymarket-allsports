@@ -30,7 +30,7 @@ wallet_tracker.py stops fetching their trades entirely.
 import time
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
 
 import config
 import wallet_reputation
@@ -50,6 +50,7 @@ class ConsensusSignal:
     first_seen: float
     signal_type: str = "base"   # "base" or "double_up"
     multiplier: float = 1.0
+    event_slug: Optional[str] = None  # parent event's own slug — see market_resolver.py's docstring
 
 
 class ConsensusEngine:
@@ -75,6 +76,7 @@ class ConsensusEngine:
                       weighted_count: float) -> ConsensusSignal:
         trade_list = list(wallets.values())
         avg_price = sum(t.price for t in trade_list) / len(trade_list)
+        event_slug = next((t.event_slug for t in trade_list if t.event_slug), None)
         return ConsensusSignal(
             market_slug=key[0],
             outcome=key[1],
@@ -84,6 +86,7 @@ class ConsensusEngine:
             avg_price=avg_price,
             first_seen=min(t.timestamp for t in trade_list),
             signal_type=signal_type,
+            event_slug=event_slug,
             multiplier=1.0,  # each fired signal (base or double_up) uses the
                               # normal bet size — firing twice is what doubles
                               # the cumulative stake, not a bigger multiplier

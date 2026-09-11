@@ -28,6 +28,7 @@ class WhaleTrade:
     size_usd: float
     timestamp: float
     tx_hash: Optional[str] = None
+    event_slug: Optional[str] = None  # parent event's own slug — see market_resolver.py's docstring
 
 
 class WalletTracker:
@@ -94,6 +95,7 @@ class WalletTracker:
                     size_usd=size_usd,
                     timestamp=float(t.get("timestamp", time.time())),
                     tx_hash=tx_hash,
+                    event_slug=t.get("eventSlug"),
                 )
                 self._seen_tx_hashes.add(tx_hash)
                 new_trades.append(trade)

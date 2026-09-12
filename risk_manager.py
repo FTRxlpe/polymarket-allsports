@@ -33,6 +33,12 @@ class OpenPosition:
     contributing_wallets: List[str] = field(default_factory=list)  # union across base + double_up
     event_slug: Optional[str] = None  # needed for resolution_watcher.py's lookup — see market_resolver.py
     opened_at: float = field(default_factory=time.time)
+    doubled_up: bool = False  # persisted so a main.py restart can't re-fire
+                               # double_up on this position — consensus_engine's
+                               # own _fired_double guard is in-memory only and
+                               # resets on restart, which otherwise lets a
+                               # still-in-window whale trade re-trigger an
+                               # unbounded number of extra double_up stakes
 
 
 @dataclass
@@ -126,10 +132,19 @@ class RiskManager:
         if not is_addition and self._has_open_position(signal.market_slug):
             return "position already open on this market"
 
+        if is_addition and self._already_doubled_up(signal.market_slug):
+            return "already doubled up on this position"
+
         return None  # all checks passed
 
     def _has_open_position(self, market_slug: str) -> bool:
         return any(p["market_slug"] == market_slug for p in self.state.open_positions)
+
+    def _already_doubled_up(self, market_slug: str) -> bool:
+        return any(
+            p["market_slug"] == market_slug and p.get("doubled_up")
+            for p in self.state.open_positions
+        )
 
     # ---------------- state mutation after acting on a signal ----------------
     def record_bet_placed(self, signal: ConsensusSignal, bet_size: float, is_addition: bool = False):
@@ -152,6 +167,7 @@ class RiskManager:
                     pos["contributing_wallets"] = sorted(
                         set(pos.get("contributing_wallets", [])) | set(signal.contributing_wallets)
                     )
+                    pos["doubled_up"] = True
                     break
             else:
                 self.state.open_positions.append(asdict(OpenPosition(
@@ -159,6 +175,7 @@ class RiskManager:
                     shares=shares, bet_size_usd=bet_size,
                     contributing_wallets=list(signal.contributing_wallets),
                     event_slug=signal.event_slug,
+                    doubled_up=True,
                 )))
         else:
             self.state.open_positions.append(asdict(OpenPosition(

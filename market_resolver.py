@@ -124,9 +124,21 @@ class MarketResolver:
         return None
 
     def _get_market(self, slug: str, event_slug: str = None) -> Optional[dict]:
+        # A successful lookup is cached under the bare slug — the market it
+        # finds doesn't depend on which slug/event_slug led there.
         cached = _cache.get(slug)
-        if cached and (time.time() - cached[0]) < _CACHE_TTL_SECONDS:
+        if cached and (time.time() - cached[0]) < _CACHE_TTL_SECONDS and cached[1] is not None:
             return cached[1]
+
+        # A MISS is cached under (slug, event_slug), not just slug: a first
+        # call without event_slug (or with a stale one) can fail while a
+        # later call for the same slug WITH the correct event_slug would
+        # succeed. Keying misses on the pair means that later call actually
+        # retries instead of reusing an unrelated failure.
+        miss_key = (slug, event_slug)
+        cached_miss = _cache.get(miss_key)
+        if cached_miss and (time.time() - cached_miss[0]) < _CACHE_TTL_SECONDS:
+            return None
 
         market = self._get_market_via_events(slug, event_slug)
         if not market:
@@ -142,7 +154,7 @@ class MarketResolver:
             # sub-market /events can't find) gets re-fetched from scratch
             # every time a different wallet's screening touches it, which
             # in practice meant thousands of redundant repeated lookups.
-            _cache[slug] = (time.time(), None)
+            _cache[miss_key] = (time.time(), None)
             return None
 
         _cache[slug] = (time.time(), market)

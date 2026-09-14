@@ -95,7 +95,17 @@ class ConsensusEngine:
     def ingest(self, trades: List[WhaleTrade]) -> List[ConsensusSignal]:
         self._prune_expired()
 
+        # wallet_tracker.py's dedup (_seen_tx_hashes) is in-memory, so a
+        # restart can re-surface trades that are genuinely old (hours/days)
+        # as if they were freshly detected. Without this guard they'd sit in
+        # _pending — appearing to be part of a "near-simultaneous" consensus
+        # — for one full poll cycle before _prune_expired() catches them on
+        # the NEXT call, which is enough time to spuriously cross a
+        # threshold on stale data. Reject them at the door instead.
+        cutoff = time.time() - config.TIME_WINDOW_MINUTES * 60
         for t in trades:
+            if t.timestamp < cutoff:
+                continue
             key = (t.market_slug, t.outcome)
             self._pending.setdefault(key, {})[t.wallet_nickname] = t  # last trade per wallet
 

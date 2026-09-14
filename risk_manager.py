@@ -82,7 +82,12 @@ class RiskManager:
             self.state.day_key = today
             self.state.spent_today = 0.0
             self.state.bets_today = 0
-            self.state.paused = False  # daily cap / pause resets at UTC midnight
+            # `paused` is NOT reset here on purpose: it's the loss-streak
+            # circuit breaker (see record_result()), which explicitly asks
+            # for a manual review before resuming. Auto-clearing it at UTC
+            # midnight — sometimes minutes after it triggered — would let
+            # the bot resume unreviewed after exactly the kind of losing
+            # run it's meant to catch.
             self._save()
 
     # ---------------- sizing (layer 4) ----------------

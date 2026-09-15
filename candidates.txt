@@ -1,0 +1,6 @@
+# One wallet address per line. Gather candidates from Polymarket's own
+# activity/leaderboard pages, Polygonscan, or community-shared trader lists.
+# Lines starting with # are ignored.
+#
+# Example:
+# 0x1234567890abcdef1234567890abcdef12345678

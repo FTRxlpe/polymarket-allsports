@@ -236,7 +236,7 @@ class BankrollTier:
 BANKROLL_TIERS: List[BankrollTier] = [
     BankrollTier(1000, 0.025, 0.04, 5, 0.15, is_percentage=True),
     BankrollTier(500, 25, 40, 5, 90),
-    BankrollTier(200, 15, 25, 4, 45),
+    BankrollTier(200, 10, 15, 4, 45),
     BankrollTier(0, 8, 12, 4, 33),
 ]
 
